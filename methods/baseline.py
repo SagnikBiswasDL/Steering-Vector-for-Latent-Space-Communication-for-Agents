@@ -54,6 +54,8 @@ class BaselineMethod:
                 top_p=self.top_p,
             )
 
+        token_counts = list(getattr(self.model, "last_gen_token_counts", []))
+
         results: List[Dict] = []
         
         for idx, item in enumerate(items):
@@ -112,6 +114,7 @@ class BaselineMethod:
                     "raw_prediction": generated_text,
                     "agents": [agent_trace],
                     "correct": ok,
+                    "output_tokens": int(token_counts[idx]) if idx < len(token_counts) else 0,
                 }
             )
         return results

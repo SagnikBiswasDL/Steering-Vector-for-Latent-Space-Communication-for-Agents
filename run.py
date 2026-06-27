@@ -108,6 +108,13 @@ def main():
     parser.add_argument("--latent_space_realign", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
 
+    # SEAL steering (token efficiency): applied to the Judger's text decoding (HF backend)
+    parser.add_argument("--seal", action="store_true", help="Enable SEAL steering during Judger decoding")
+    parser.add_argument("--seal_vector", type=str, default=None, help="Path to the SEAL steering-vector artifact (.pt)")
+    parser.add_argument("--seal_layer", type=int, default=-1, help="Decoder layer to steer; -1 uses the artifact's layer_index")
+    parser.add_argument("--seal_coef", type=float, default=0.0, help="Steering coefficient (>0 suppresses reflection/transition)")
+    parser.add_argument("--seal_apply_to", type=str, default="last", choices=["last", "all"], help="Steer only the current token ('last') or all positions ('all')")
+
     # vLLM support
     parser.add_argument("--use_vllm", action="store_true", help="Use vLLM backend for generation")
     parser.add_argument("--enable_prefix_caching", action="store_true", help="Enable prefix caching in vLLM for latent_mas")
@@ -226,7 +233,13 @@ def main():
     total_time = time.time() - start_time
 
     acc, correct = evaluate(preds)
-    
+
+    # Output-token usage (Judger text decoding); 0 if a method does not report it.
+    out_toks = [int(p.get("output_tokens", 0)) for p in preds]
+    total_output_tokens = sum(out_toks)
+    n_tok = len(out_toks) if out_toks else 1
+    mean_output_tokens = total_output_tokens / n_tok
+
     # Load results in JSON format
     print(
         json.dumps(
@@ -240,6 +253,11 @@ def main():
                 "correct": correct,
                 "total_time_sec": round(total_time,4),
                 "time_per_sample_sec": round(total_time / args.max_samples, 4),
+                "total_output_tokens": total_output_tokens,
+                "mean_output_tokens": round(mean_output_tokens, 2),
+                "seal": bool(getattr(args, "seal", False)),
+                "seal_coef": float(getattr(args, "seal_coef", 0.0)),
+                "seal_layer": int(getattr(args, "seal_layer", -1)),
             },
             ensure_ascii=False,
         )

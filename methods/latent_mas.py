@@ -87,6 +87,7 @@ class LatentMASMethod:
         past_kv: Optional[Tuple] = None
         agent_traces: List[List[Dict]] = [[] for _ in range(batch_size)]
         final_texts = ["" for _ in range(batch_size)]
+        final_output_tokens = [0 for _ in range(batch_size)]
 
         for agent in self.agents:
 
@@ -182,9 +183,12 @@ class LatentMASMethod:
                     top_p=self.top_p,
                     past_key_values=past_for_decoding,
                 )
+                judger_token_counts = list(getattr(self.model, "last_gen_token_counts", []))
                 for idx in range(batch_size):
                     final_text = generated_batch[idx].strip()
                     final_texts[idx] = final_text
+                    if idx < len(judger_token_counts):
+                        final_output_tokens[idx] = int(judger_token_counts[idx])
                     mask = judger_mask[idx].bool()
                     trimmed_ids = judger_ids[idx][mask].to("cpu").tolist()
                     agent_traces[idx].append(
@@ -244,6 +248,7 @@ class LatentMASMethod:
                     "raw_prediction": final_text,
                     "agents": agent_traces[idx],
                     "correct": ok,
+                    "output_tokens": final_output_tokens[idx],
                 }
             )
         return results

@@ -84,6 +84,24 @@ class ModelWrapper:
         if self.latent_space_realign:
             self._ensure_latent_realign_matrix(self.model, self.device, args)
 
+        # SEAL steering (token-efficiency): built only for the HF backend, applied
+        # during Judger text decoding. Disabled unless --seal is passed.
+        self.seal = None
+        self.last_gen_token_counts: List[int] = []
+        if args is not None and bool(getattr(args, "seal", False)):
+            from seal import SealSteerer
+            seal_layer = getattr(args, "seal_layer", -1)
+            self.seal = SealSteerer.from_artifact(
+                getattr(args, "seal_vector"),
+                coef=float(getattr(args, "seal_coef", 0.0)),
+                layer_index=(seal_layer if seal_layer is not None and seal_layer >= 0 else None),
+                apply_to=getattr(args, "seal_apply_to", "last"),
+            )
+            print(
+                f"[SEAL] enabled: layer={self.seal.layer_index} coef={self.seal.coef} "
+                f"apply_to={self.seal.apply_to} vector={getattr(args, 'seal_vector')}"
+            )
+
     def render_chat(self, messages: List[Dict], add_generation_prompt: bool = True) -> str:
         tpl = getattr(self.tokenizer, "chat_template", None)
         if tpl:
@@ -244,26 +262,50 @@ class ModelWrapper:
                     device=attention_mask.device,
                 )
                 attention_mask = torch.cat([past_mask, attention_mask], dim=-1)
-        outputs = self.model.generate(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            do_sample=True,
-            pad_token_id=self.tokenizer.pad_token_id,
-            return_dict_in_generate=True,
-            output_scores=False,
-            past_key_values=past_key_values,
-            cache_position=cache_position,
-        )
+        seal = getattr(self, "seal", None)
+        use_seal = seal is not None and seal.coef != 0.0
+        if use_seal:
+            seal.register(self.model)
+            seal.enable()
+        try:
+            outputs = self.model.generate(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                do_sample=True,
+                pad_token_id=self.tokenizer.pad_token_id,
+                return_dict_in_generate=True,
+                output_scores=False,
+                past_key_values=past_key_values,
+                cache_position=cache_position,
+            )
+        finally:
+            if use_seal:
+                seal.disable()
+                seal.remove()
         sequences = outputs.sequences
+        eos_id = self.tokenizer.eos_token_id
+        pad_id = self.tokenizer.pad_token_id
         generations: List[str] = []
+        token_counts: List[int] = []
         for idx, length in enumerate(prompt_lengths):
             length = int(length)
             generated_ids = sequences[idx, length:]
             text = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
             generations.append(text)
+            # Count real generated tokens: stop at first EOS; ignore trailing pad.
+            cnt = 0
+            for tok in generated_ids.tolist():
+                if eos_id is not None and tok == eos_id:
+                    cnt += 1
+                    break
+                if pad_id is not None and pad_id != eos_id and tok == pad_id:
+                    break
+                cnt += 1
+            token_counts.append(cnt)
+        self.last_gen_token_counts = token_counts
         return generations, outputs.past_key_values
 
     def tokenize_text(self, text: str) -> torch.Tensor:
