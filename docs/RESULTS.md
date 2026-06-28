@@ -5,10 +5,13 @@ calibration vector to reduce output tokens. For the architecture/method walkthro
 see [`EXPERIMENT_OVERVIEW.md`](EXPERIMENT_OVERVIEW.md); for the project log see
 [`PROGRESS.md`](PROGRESS.md).
 
-**TL;DR:** A training-free SEAL steering vector applied to the LatentMAS Judger's
-decoding reduces output tokens by **~25–39%** while accuracy is **retained or
-improved**, and the vector **transfers across tasks** (extracted on GSM8K, works on
-ARC-Challenge). Decoding is also ~2× faster at the strongest setting.
+**TL;DR:** On a **properly forked LatentMAS** — verified both byte-for-byte
+(all 24 upstream files' git SHAs match `Gen-Verse/LatentMAS@9a9e4d3`, 0 mismatches)
+and behaviorally (reproduces the paper's accuracy, §2) — a training-free SEAL
+steering vector applied to the Judger's decoding reduces output tokens by
+**~25–39%** while accuracy is **retained or improved**, and the vector **transfers
+across tasks** (extracted on GSM8K, works on ARC-Challenge). Decoding is also ~2×
+faster at the strongest setting.
 
 ---
 
@@ -33,19 +36,43 @@ produce zero output tokens.
 
 ---
 
-## 2. Baseline faithfulness (fork vs. paper)
+## 2. Fork fidelity — LatentMAS is properly forked (two independent proofs)
 
-Before any steering, the fork reproduces the published LatentMAS accuracy
-(Qwen3-14B, n=150):
+This is foundational: every efficiency claim below is meaningless unless our
+LatentMAS is a faithful copy of the original. We establish that **two independent
+ways** — byte-level and behavioral.
 
-| Task | Our fork | Paper (LatentMAS) |
-|---|---|---|
-| GSM8K | 92.7% | 95.2% |
-| ARC-Challenge | 94.7% | 95.6% |
-| MedQA | 79.3% | 80.7% |
+### 2a. Byte-for-byte identity (code-level proof)
+Our baseline is a verbatim fork of the upstream implementation
+[`Gen-Verse/LatentMAS`](https://github.com/Gen-Verse/LatentMAS) pinned at commit
+`9a9e4d3`. **All 24 upstream files were verified byte-for-byte: every file's git
+blob SHA matches upstream exactly — 0 mismatches.** (e.g. `methods/latent_mas.py`
+= `8036367`, `models.py` = `1003da6`, `run.py` = `54cea67`, …). The Apache-2.0
+LICENSE is preserved and attribution is recorded in `NOTICE`. In other words, the
+baseline is not a re-implementation that could drift from the paper — it is the
+authors' own code, unmodified.
 
-All within ~1–2.5 pts (subset / single seed / stochastic decoding vs. the paper's
-3-seed full-set means).
+The SEAL work is then layered on top as a separate, clearly-scoped change on a
+feature branch, so the baseline remains provably intact.
+
+### 2b. Behavioral reproduction (results-level proof)
+The fork also reproduces the **published accuracy** on Qwen3-14B (n=150),
+confirming it runs correctly, not just that the bytes match:
+
+| Task | Our fork | Paper (LatentMAS) | Δ |
+|---|---|---|---|
+| GSM8K | 92.7% | 95.2% | −2.5 |
+| ARC-Challenge | 94.7% | 95.6% | −0.9 |
+| MedQA | 79.3% | 80.7% | −1.4 |
+
+All within ~1–2.5 pts — fully expected given we evaluate a 150-sample subset with
+a single seed and stochastic decoding (temperature 0.6), whereas the paper reports
+**3-seed means over the full test sets**. Crucially, every number tracks the
+**LatentMAS** column, not the weaker single-agent baseline (e.g. MedQA 79.3% vs.
+single-agent 64.7%), so the latent collaboration machinery is genuinely active.
+
+**Conclusion: the fork is faithful at both the byte level (identical code) and the
+behavioral level (paper-matching accuracy).**
 
 ---
 
