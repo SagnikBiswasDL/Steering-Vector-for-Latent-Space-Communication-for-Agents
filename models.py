@@ -288,11 +288,14 @@ class ModelWrapper:
         sequences = outputs.sequences
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id
+        # Generated tokens always begin after the (padded) input width, uniform
+        # across rows. Slicing by per-row prompt length would start inside the
+        # padding region (corrupting both the text and the token count).
+        gen_start = input_ids.shape[1]
         generations: List[str] = []
         token_counts: List[int] = []
-        for idx, length in enumerate(prompt_lengths):
-            length = int(length)
-            generated_ids = sequences[idx, length:]
+        for idx in range(sequences.shape[0]):
+            generated_ids = sequences[idx, gen_start:]
             text = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
             generations.append(text)
             # Count real generated tokens: stop at first EOS; ignore trailing pad.
