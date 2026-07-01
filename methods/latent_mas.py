@@ -133,6 +133,7 @@ class LatentMASMethod:
                     attention_mask=wrapped_mask,
                     latent_steps=self.latent_steps,
                     past_key_values=past_kv,
+                    role=agent.role,
                 )
                 if self.sequential_info_only or self.latent_only:
                     new_past_len = _past_length(past_kv)
@@ -182,6 +183,7 @@ class LatentMASMethod:
                     temperature=self.temperature,
                     top_p=self.top_p,
                     past_key_values=past_for_decoding,
+                    role=agent.role,
                 )
                 judger_token_counts = list(getattr(self.model, "last_gen_token_counts", []))
                 for idx in range(batch_size):

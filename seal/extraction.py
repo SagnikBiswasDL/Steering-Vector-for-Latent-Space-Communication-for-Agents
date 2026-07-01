@@ -53,9 +53,15 @@ def extract_seal_vector(
     temperature: float = 0.6,
     top_p: float = 0.95,
     reasoning_instruction: Optional[str] = None,
+    message_builder=None,
     log_every: int = 10,
 ) -> Dict[str, object]:
-    """Generate CoT traces and build the steering vector at `layer_index`."""
+    """Generate CoT traces and build the steering vector at `layer_index`.
+
+    message_builder: optional callable(question) -> list[chat messages]. When
+    provided (e.g. a role-specific LatentMAS prompt) it overrides the default
+    generic reasoning prompt, so the vector reflects that role's reasoning style.
+    """
     if reasoning_instruction is None:
         reasoning_instruction = (
             "You are a helpful assistant. Reason step by step to solve the "
@@ -72,10 +78,13 @@ def extract_seal_vector(
     for qi, question in enumerate(questions):
         if n_traces >= max_traces:
             break
-        messages = [
-            {"role": "system", "content": reasoning_instruction},
-            {"role": "user", "content": question},
-        ]
+        if message_builder is not None:
+            messages = message_builder(question)
+        else:
+            messages = [
+                {"role": "system", "content": reasoning_instruction},
+                {"role": "user", "content": question},
+            ]
         prompt_text = tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )

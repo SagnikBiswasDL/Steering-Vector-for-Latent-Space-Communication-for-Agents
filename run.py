@@ -114,6 +114,7 @@ def main():
     parser.add_argument("--seal_layer", type=int, default=-1, help="Decoder layer to steer; -1 uses the artifact's layer_index")
     parser.add_argument("--seal_coef", type=float, default=0.0, help="Steering coefficient (>0 suppresses reflection/transition)")
     parser.add_argument("--seal_apply_to", type=str, default="last", choices=["last", "all"], help="Steer only the current token ('last') or all positions ('all')")
+    parser.add_argument("--seal_agents", type=str, default="judger", help="Which agent roles to steer: comma-separated subset of planner,critic,refiner,judger (or 'all'). Default: judger.")
 
     # vLLM support
     parser.add_argument("--use_vllm", action="store_true", help="Use vLLM backend for generation")
@@ -258,6 +259,7 @@ def main():
                 "seal": bool(getattr(args, "seal", False)),
                 "seal_coef": float(getattr(args, "seal_coef", 0.0)),
                 "seal_layer": int(getattr(args, "seal_layer", -1)),
+                "seal_agents": getattr(args, "seal_agents", "judger"),
             },
             ensure_ascii=False,
         )

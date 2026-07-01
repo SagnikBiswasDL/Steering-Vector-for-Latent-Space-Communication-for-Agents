@@ -84,9 +84,11 @@ class ModelWrapper:
         if self.latent_space_realign:
             self._ensure_latent_realign_matrix(self.model, self.device, args)
 
-        # SEAL steering (token-efficiency): built only for the HF backend, applied
-        # during Judger text decoding. Disabled unless --seal is passed.
+        # SEAL steering (token-efficiency): HF backend only. The hook is registered
+        # once (persistent) and toggled per agent-role via `seal_active_roles`, so we
+        # can steer any subset of {planner, critic, refiner, judger}.
         self.seal = None
+        self.seal_active_roles = set()
         self.last_gen_token_counts: List[int] = []
         if args is not None and bool(getattr(args, "seal", False)):
             from seal import SealSteerer
@@ -97,10 +99,35 @@ class ModelWrapper:
                 layer_index=(seal_layer if seal_layer is not None and seal_layer >= 0 else None),
                 apply_to=getattr(args, "seal_apply_to", "last"),
             )
+            roles_raw = getattr(args, "seal_agents", "judger") or "judger"
+            if roles_raw.strip().lower() == "all":
+                self.seal_active_roles = {"planner", "critic", "refiner", "judger"}
+            else:
+                self.seal_active_roles = {r.strip().lower() for r in roles_raw.split(",") if r.strip()}
+            # Register once; keep disabled until a matching agent runs.
+            self.seal.register(self.model)
+            self.seal.disable()
             print(
                 f"[SEAL] enabled: layer={self.seal.layer_index} coef={self.seal.coef} "
-                f"apply_to={self.seal.apply_to} vector={getattr(args, 'seal_vector')}"
+                f"apply_to={self.seal.apply_to} agents={sorted(self.seal_active_roles)} "
+                f"vector={getattr(args, 'seal_vector')}"
             )
+
+    def _seal_activate_for(self, role: Optional[str]) -> bool:
+        """Enable the steerer iff SEAL is on and this role is targeted.
+
+        role=None (e.g. single-agent baseline) counts as active. Returns whether
+        the hook was enabled so the caller can disable it afterwards.
+        """
+        seal = getattr(self, "seal", None)
+        if seal is None or seal.coef == 0.0:
+            return False
+        active = (role is None) or (role in self.seal_active_roles)
+        if active:
+            seal.enable()
+            return True
+        seal.disable()
+        return False
 
     def render_chat(self, messages: List[Dict], add_generation_prompt: bool = True) -> str:
         tpl = getattr(self.tokenizer, "chat_template", None)
@@ -240,6 +267,7 @@ class ModelWrapper:
         temperature: float = 0.7,
         top_p: float = 0.95,
         past_key_values: Optional[Tuple] = None,
+        role: Optional[str] = None,
     ) -> Tuple[List[str], Optional[Tuple]]:
         if input_ids.dim() != 2:
             raise ValueError("input_ids must be 2D with shape [batch, seq_len]")
@@ -262,11 +290,7 @@ class ModelWrapper:
                     device=attention_mask.device,
                 )
                 attention_mask = torch.cat([past_mask, attention_mask], dim=-1)
-        seal = getattr(self, "seal", None)
-        use_seal = seal is not None and seal.coef != 0.0
-        if use_seal:
-            seal.register(self.model)
-            seal.enable()
+        use_seal = self._seal_activate_for(role)
         try:
             outputs = self.model.generate(
                 input_ids=input_ids,
@@ -283,8 +307,7 @@ class ModelWrapper:
             )
         finally:
             if use_seal:
-                seal.disable()
-                seal.remove()
+                self.seal.disable()
         sequences = outputs.sequences
         eos_id = self.tokenizer.eos_token_id
         pad_id = self.tokenizer.pad_token_id
@@ -326,6 +349,7 @@ class ModelWrapper:
         *,
         latent_steps: int,
         past_key_values: Optional[Tuple] = None,
+        role: Optional[str] = None,
     ) -> Tuple:
         if input_ids.dim() != 2:
             raise ValueError("input_ids must be 2D with shape [batch, seq_len]")
@@ -344,6 +368,9 @@ class ModelWrapper:
                     device=attention_mask.device,
                 )
                 attention_mask = torch.cat([past_mask, attention_mask], dim=-1)
+
+        # Steer this agent's latent forward passes if its role is targeted.
+        _seal_on = self._seal_activate_for(role)
 
         outputs = self.model(
             input_ids=input_ids,
@@ -392,6 +419,8 @@ class ModelWrapper:
             past = outputs.past_key_values
             last_hidden = outputs.hidden_states[-1][:, -1, :]
 
+        if _seal_on:
+            self.seal.disable()
         return past
     
     @torch.no_grad()

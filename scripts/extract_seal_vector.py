@@ -10,6 +10,7 @@ Example:
 import argparse
 import os
 import sys
+from types import SimpleNamespace
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -21,6 +22,7 @@ from data import (  # noqa: E402
     load_arc_challenge,
     load_medqa,
 )
+from prompts import build_agent_message_sequential_latent_mas  # noqa: E402
 from seal.extraction import extract_seal_vector  # noqa: E402
 
 
@@ -54,6 +56,10 @@ def main():
     ap.add_argument("--temperature", type=float, default=0.6)
     ap.add_argument("--top_p", type=float, default=0.95)
     ap.add_argument("--device", type=str, default="cuda")
+    ap.add_argument("--role", type=str, default=None,
+                    choices=[None, "planner", "critic", "refiner", "judger"],
+                    help="If set, generate traces with this LatentMAS role's prompt "
+                         "so the vector reflects that role's reasoning style.")
     ap.add_argument("--out", type=str, required=True)
     args = ap.parse_args()
 
@@ -69,6 +75,14 @@ def main():
     questions = load_questions(args.task, args.split, args.scan_limit)
     print(f"[extract] loaded {len(questions)} candidate questions from {args.task}/{args.split}")
 
+    message_builder = None
+    if args.role is not None:
+        prompt_args = SimpleNamespace(model_name=args.model_name)
+        message_builder = lambda q: build_agent_message_sequential_latent_mas(  # noqa: E731
+            role=args.role, question=q, context="", method="latent_mas", args=prompt_args
+        )
+        print(f"[extract] using role-specific prompt: {args.role}")
+
     result = extract_seal_vector(
         model,
         tokenizer,
@@ -79,6 +93,7 @@ def main():
         max_traces=args.max_traces,
         temperature=args.temperature,
         top_p=args.top_p,
+        message_builder=message_builder,
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -92,6 +107,7 @@ def main():
         "model_name": args.model_name,
         "task": args.task,
         "split": args.split,
+        "role": args.role,
     }
     torch.save(blob, args.out)
     print(f"[extract] saved -> {args.out}")
