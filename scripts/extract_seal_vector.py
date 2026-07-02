@@ -77,7 +77,7 @@ def main():
 
     message_builder = None
     if args.role is not None:
-        prompt_args = SimpleNamespace(model_name=args.model_name)
+        prompt_args = SimpleNamespace(model_name=args.model_name, task=args.task)
         message_builder = lambda q: build_agent_message_sequential_latent_mas(  # noqa: E731
             role=args.role, question=q, context="", method="latent_mas", args=prompt_args
         )

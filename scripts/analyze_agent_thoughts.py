@@ -122,7 +122,7 @@ def main():
     ).to(device).eval()
 
     questions = load_questions(args.task, args.split, args.n)
-    prompt_args = SimpleNamespace(model_name=args.model_name)
+    prompt_args = SimpleNamespace(model_name=args.model_name, task=args.task)
     print(f"[analyze] {len(questions)} questions x {len(roles)} roles on {args.task}")
 
     per_role = {}
