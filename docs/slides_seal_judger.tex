@@ -1,0 +1,238 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+
+\title{SEAL Steering of LatentMAS}
+\subtitle{Steering the Judger for token-efficient latent multi-agent reasoning}
+\author{Sagnik Biswas}
+\date{July 2, 2026}
+
+\begin{document}
+
+\begin{frame}
+    \titlepage
+    \vspace{-1cm}
+\end{frame}
+
+\begin{frame}{Motivation \& Research Question}
+    \textbf{Can SEAL-style steering make latent multi-agent reasoning more \emph{token-efficient} without losing accuracy?}
+    \begin{itemize}
+        \item \textbf{LatentMAS:} multi-agent collaboration in the \textbf{latent KV cache}; only the final agent emits text.
+        \item \textbf{SEAL:} training-free steering vector that suppresses redundant \textbf{reflection/transition} reasoning.
+        \item \textbf{Reframed question:} the text bottleneck is the \textbf{Judger}. If we steer \emph{its} decoding, do we cut output tokens while holding accuracy? And which agents does steering actually help?
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Background: LatentMAS Architecture}
+    \textbf{Four agents, latent communication, one text decoder}
+    \begin{itemize}
+        \item \textbf{Pipeline:} Planner $\rightarrow$ Critic $\rightarrow$ Refiner $\rightarrow$ \textbf{Judger}
+        \item Non-Judger agents run \textbf{40 latent forward steps} each (emit \emph{no} text).
+        \item Agents share a growing \textbf{KV cache} (``working memory'').
+        \item \textbf{Judger} alone decodes the final \textbf{text answer} $\Rightarrow$ the only source of output tokens.
+    \end{itemize}
+    \vspace{0.4cm}
+    \begin{center}
+        [Question] $\rightarrow$ Planner $\rightarrow$ Critic $\rightarrow$ Refiner $\rightarrow$ Judger $\rightarrow$ [Answer] \\
+        \textit{shared latent KV cache; only Judger produces tokens}
+    \end{center}
+\end{frame}
+
+\begin{frame}{Background: What SEAL Adds}
+    \textbf{SEAL = activation steering \emph{away from} over-reasoning}
+    \begin{itemize}
+        \item Extract hidden states from \textbf{text CoT} on GSM8K train.
+        \item Classify each step: \textbf{execution} vs \textbf{reflection} vs \textbf{transition}.
+        \item Steering vector at layer $L$: \\ $v = \text{mean(execution)} - \text{mean(reflection} \cup \text{transition)}$.
+        \item At runtime: \texttt{hidden[:, -1, :] += coef * v} via forward hook. \\ \textbf{coef $>$ 0 suppresses reflection $\Rightarrow$ shorter reasoning.}
+    \end{itemize}
+    \vspace{0.3cm}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|l|c|}
+            \hline
+            \textbf{Stat} & \textbf{Value} \\ \hline
+            Traces used & 50 (GSM8K train) \\ \hline
+            Execution / Reflection / Transition & 1765 / 218 / 76 \\ \hline
+            Hook layer & 28 \\ \hline
+            Coefficient & swept 0--80 \\ \hline
+        \end{tabular}
+    \end{table}
+\end{frame}
+
+\begin{frame}{Foundation: The LatentMAS Fork Is Faithful}
+    \textbf{Two independent proofs before building on it}
+    \begin{itemize}
+        \item \textbf{Byte-for-byte:} verbatim fork of \texttt{Gen-Verse/LatentMAS@9a9e4d3}; all \textbf{24 files' git SHAs match} (0 mismatches) --- authors' code, unmodified.
+        \item \textbf{Behavioral:} reproduces the paper's accuracy on Qwen3-14B.
+    \end{itemize}
+    \vspace{0.2cm}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|l|c|c|}
+            \hline
+            \textbf{Task} & \textbf{Our fork} & \textbf{Paper} \\ \hline
+            GSM8K & 92.7\% & 95.2\% \\ \hline
+            ARC-Challenge & 94.7\% & 95.6\% \\ \hline
+            MedQA & 79.3\% & 80.7\% \\ \hline
+        \end{tabular}
+    \end{table}
+    \vspace{0.2cm}
+    \begin{center}\textit{Within noise for a subset / single-seed run.}\end{center}
+\end{frame}
+
+\begin{frame}{Integration: Where SEAL Hooks In}
+    \textbf{Per-agent steering control (\texttt{--seal\_agents})}
+    \begin{itemize}
+        \item Hook registered once; \textbf{toggled per agent role}.
+        \item Can steer any subset of \{planner, critic, refiner, judger\} during their latent or text forward passes.
+        \item Vector applied only to the \textbf{current position} at layer 28, every forward pass.
+        \item Output-token counting added; metric = \textbf{mean output tokens} + accuracy.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Experimental Protocol}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|l|l|}
+            \hline
+            \textbf{Parameter} & \textbf{Value} \\ \hline
+            Model & Qwen/Qwen3-14B \\ \hline
+            Datasets & GSM8K, ARC-Challenge, MedQA \\ \hline
+            Samples & 120 (GSM8K/ARC), 100 (MedQA), seed 42 \\ \hline
+            Latent steps & 40 / agent (non-Judger) \\ \hline
+            Sampling & temp 0.6, top-p 0.95 \\ \hline
+            Backend & HuggingFace, 1$\times$ H200 \\ \hline
+        \end{tabular}
+    \end{table}
+    \vspace{0.2cm}
+    \textbf{Conditions:} baseline (no SEAL) vs. SEAL at a swept coefficient, applied to a chosen agent.
+\end{frame}
+
+\begin{frame}{Main Result: Judger Steering (GSM8K)}
+    \textbf{$-$17 to $-$39\% output tokens, accuracy held or improved}
+    \vspace{0.2cm}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|c|c|c|c|}
+            \hline
+            \textbf{coef} & \textbf{Accuracy} & \textbf{Mean tokens} & \textbf{$\Delta$ tokens} \\ \hline
+            0 (control) & 93.3\% & 621 & --- \\ \hline
+            40 & \textbf{95.0\%} & 515 & $-$17\% \\ \hline
+            60 & 94.2\% & 437 & $-$30\% \\ \hline
+            80 & 94.2\% & 379 & \textbf{$-$39\%} \\ \hline
+        \end{tabular}
+    \end{table}
+    \vspace{0.2cm}
+    \begin{block}{Note}
+        Monotonic dose-response; $\sim$2$\times$ faster decode at coef 80. \\
+        (Real over-reasoning: the Judger emits $\sim$620 tokens at baseline.)
+    \end{block}
+\end{frame}
+
+\begin{frame}{Cross-Task Transfer (GSM8K vector, unchanged)}
+    \textbf{The vector transfers --- but the trade-off is task-dependent}
+    \vspace{0.2cm}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|l|c|c|}
+            \hline
+            \textbf{Task} & \textbf{Control} & \textbf{Steered} \\ \hline
+            GSM8K & 621 tok / 93.3\% & coef80: 379 / 94.2\% \\ \hline
+            ARC-Challenge & 498 tok / 95.8\% & coef40: 372 / \textbf{95.8\%} \\ \hline
+            MedQA & 1003 tok / 78.0\% & coef60: 880 / 73.0\% \\ \hline
+        \end{tabular}
+    \end{table}
+    \vspace{0.2cm}
+    \begin{itemize}
+        \item ARC-Challenge: \textbf{$-$25\% tokens at identical accuracy}.
+        \item MedQA: $-$12\% tokens but $-$5 pts accuracy --- needs a gentler coefficient.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Per-Agent Steering: Only the Judger Matters}
+    \textbf{GSM8K, same vector, one agent steered at a time (control 621 / 93.3\%)}
+    \vspace{0.2cm}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|l|c|c|}
+            \hline
+            \textbf{Steered agent} & \textbf{coef 40} & \textbf{coef 80} \\ \hline
+            \textbf{Judger} & 515 / 95.0\% & \textbf{379 / 94.2\%} \\ \hline
+            Planner & 580 / 95.0\% & 593 / 94.2\% \\ \hline
+            Critic & 635 / 94.2\% & 615 / 95.8\% \\ \hline
+            Refiner & 623 / 91.7\% & 608 / 95.0\% \\ \hline
+            All agents (coef 60) & \multicolumn{2}{c|}{455 / 93.3\% ($\approx$ Judger-only 437)} \\ \hline
+        \end{tabular}
+    \end{table}
+    \vspace{0.2cm}
+    \begin{center}\textit{Only Judger steering reduces tokens. Steering everything is no better.}\end{center}
+\end{frame}
+
+\begin{frame}{Why? Thought Distribution Is Uniform}
+    \textbf{The effect is \emph{structural}, not distributional}
+    \vspace{0.2cm}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|l|c|c|}
+            \hline
+            \textbf{Role} & \textbf{execution} & \textbf{non-execution} \\ \hline
+            Planner & 87.5\% & 12.5\% \\ \hline
+            Critic & 87.8\% & 12.2\% \\ \hline
+            Refiner & 88.8\% & 11.2\% \\ \hline
+            Judger & 88.2\% & 11.8\% \\ \hline
+        \end{tabular}
+    \end{table}
+    \vspace{0.2cm}
+    \begin{itemize}
+        \item All four agents reason \textbf{almost identically} ($\sim$88\% execution).
+        \item Judger wins \emph{not} because it is more reflective, but because it is the \textbf{only text-emitter} --- the only place a token count exists to shrink.
+        \item \textit{(Caveat: isolation proxy --- roles prompted alone in text, not in-pipeline latent decoding.)}
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Latent Agents: A Quality Lever, Not a Length Lever}
+    \textbf{Phase C --- role-native vector for the Critic (GSM8K)}
+    \vspace{0.2cm}
+    \begin{table}[]
+        \centering
+        \begin{tabular}{|l|c|c|}
+            \hline
+            \textbf{Critic vector} & \textbf{coef 40} & \textbf{coef 80} \\ \hline
+            Generic (GSM8K) & 635 / 94.2\% & 615 / 95.8\% \\ \hline
+            \textbf{Critic-native} & 617 / \textbf{95.8\%} & 615 / 94.2\% \\ \hline
+        \end{tabular}
+    \end{table}
+    \vspace{0.2cm}
+    \begin{itemize}
+        \item Steering the Critic doesn't move tokens ($\approx$ control), but a \textbf{critic-native} vector lifts accuracy (95.8\% vs 93.3\% control).
+        \item $\Rightarrow$ latent sub-agents need a \textbf{different objective} (quality), not length.
+    \end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusion}
+    \begin{center}
+        \Large \textbf{Core Message} \\
+        \vspace{0.6cm}
+        \normalsize SEAL on the LatentMAS \textbf{Judger} cuts output tokens \textbf{$\sim$25--39\% with accuracy retained}, and the vector \textbf{transfers} across tasks. The gain is \textbf{localized to the text-emitting agent}; steering latent agents is instead a \textbf{quality lever}.
+    \end{center}
+\end{frame}
+
+\begin{frame}{Limitations}
+    \begin{enumerate}
+        \item \textbf{Power:} n = 100--120, single seed; need larger n + multiple seeds.
+        \item \textbf{Coverage:} one layer (28), one backbone (Qwen3-14B).
+        \item \textbf{Task sensitivity:} MedQA shows the token/accuracy trade-off is coef-dependent.
+        \item \textbf{Distribution proxy:} thought types measured with roles prompted in isolation (text), not in-pipeline latent decoding.
+    \end{enumerate}
+\end{frame}
+
+\begin{frame}{Future Work \& Next Steps}
+    \begin{itemize}
+        \item Rigorous confirmation: n$\approx$500, 3 seeds, full \textbf{accuracy--token Pareto frontier}.
+        \item Gentler coef sweep for MedQA; layer sweep for the Judger.
+        \item \textbf{Novel core:} \emph{in-pipeline}, natively-acquired vectors for all 4 agents; latent-agent \emph{quality} steering via correct-vs-incorrect contrastive vectors.
+        \item Position against cache-steering / representation-engineering baselines.
+    \end{itemize}
+\end{frame}
+
+\end{document}
