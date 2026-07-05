@@ -84,6 +84,22 @@ class ModelWrapper:
         if self.latent_space_realign:
             self._ensure_latent_realign_matrix(self.model, self.device, args)
 
+        # In-pipeline activation capture (native-vector program): a read-only
+        # recorder hook at a deep layer. Toggled per agent-role from the pipeline;
+        # the recorded current-token states become correctness-contrastive vectors.
+        self.act_recorder = None
+        if args is not None and getattr(args, "capture_acts", None):
+            from seal.capture import ActivationRecorder
+            cap_layer = getattr(args, "capture_layer", None)
+            if cap_layer is None or cap_layer < 0:
+                cap_layer = getattr(args, "seal_layer", -1)
+            if cap_layer is None or cap_layer < 0:
+                cap_layer = 28
+            self.act_recorder = ActivationRecorder(int(cap_layer))
+            self.act_recorder.register(self.model)
+            self.act_recorder.disable()
+            print(f"[capture] activation recorder enabled at layer {self.act_recorder.layer_index}")
+
         # SEAL steering (token-efficiency): HF backend only. The hook is registered
         # once (persistent) and toggled per agent-role via `seal_active_roles`, so we
         # can steer any subset of {planner, critic, refiner, judger}.
@@ -120,14 +136,36 @@ class ModelWrapper:
         the hook was enabled so the caller can disable it afterwards.
         """
         seal = getattr(self, "seal", None)
-        if seal is None or seal.coef == 0.0:
+        if seal is None:
             return False
         active = (role is None) or (role in self.seal_active_roles)
-        if active:
-            seal.enable()
-            return True
-        seal.disable()
-        return False
+        if not active:
+            seal.disable()
+            return False
+        # Select this role's vector/coef (supports per-role native vectors).
+        seal.set_active_role(role)
+        if not seal.has_effect_for(role):
+            seal.disable()
+            return False
+        seal.enable()
+        return True
+
+    def _record_enable(self) -> bool:
+        """Start recording layer-L current-token states (in-pipeline capture)."""
+        rec = getattr(self, "act_recorder", None)
+        if rec is None:
+            return False
+        rec.enable()
+        return True
+
+    def _record_pop(self):
+        """Stop recording and return the per-run mean state [B, D] (or None)."""
+        rec = getattr(self, "act_recorder", None)
+        if rec is None:
+            return None
+        mean = rec.pop_mean()
+        rec.disable()
+        return mean
 
     def render_chat(self, messages: List[Dict], add_generation_prompt: bool = True) -> str:
         tpl = getattr(self.tokenizer, "chat_template", None)

@@ -8,7 +8,7 @@ trace and reduces token usage.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import torch
 
@@ -28,18 +28,44 @@ class SealSteerer:
 
     def __init__(
         self,
-        unit_vector: torch.Tensor,
+        unit_vector: Optional[torch.Tensor],
         layer_index: int,
         coef: float,
         *,
         apply_to: str = "last",  # "last" position only, or "all" positions
+        role_vectors: Optional[Dict[str, torch.Tensor]] = None,
+        role_coefs: Optional[Dict[str, float]] = None,
     ) -> None:
-        self.unit_vector = unit_vector.detach().float()
+        self.unit_vector = unit_vector.detach().float() if unit_vector is not None else None
         self.layer_index = int(layer_index)
         self.coef = float(coef)
         self.apply_to = apply_to
         self._handle = None
         self._enabled = False
+        # Optional per-role native vectors. When set and an active role has an
+        # entry, the hook uses that role's own (vector, coef) instead of the
+        # shared unit_vector/coef. This lets us steer, e.g., planner+critic+refiner
+        # each with its OWN correctness-contrastive direction in a single run.
+        self.role_vectors: Dict[str, torch.Tensor] = {
+            r: v.detach().float() for r, v in (role_vectors or {}).items()
+        }
+        self.role_coefs: Dict[str, float] = dict(role_coefs or {})
+        self._active_role: Optional[str] = None
+
+    def set_active_role(self, role: Optional[str]) -> None:
+        """Record which agent role is currently running (selects its vector)."""
+        self._active_role = role
+
+    def has_effect_for(self, role: Optional[str]) -> bool:
+        """True if enabling for ``role`` would apply a nonzero delta."""
+        vec, coef = self._resolve(role)
+        return vec is not None and coef != 0.0
+
+    def _resolve(self, role: Optional[str]):
+        if role is not None and role in self.role_vectors:
+            coef = self.role_coefs.get(role, self.coef)
+            return self.role_vectors[role], float(coef)
+        return self.unit_vector, self.coef
 
     @classmethod
     def from_artifact(cls, path: str, *, coef: float, layer_index: Optional[int] = None,
@@ -53,13 +79,16 @@ class SealSteerer:
         return cls(vec, li, coef, apply_to=apply_to)
 
     def _hook(self, module, inputs, output):
-        if not self._enabled or self.coef == 0.0:
+        if not self._enabled:
+            return output
+        vec, coef = self._resolve(self._active_role)
+        if vec is None or coef == 0.0:
             return output
         if isinstance(output, tuple):
             hs = output[0]
         else:
             hs = output
-        delta = (self.coef * self.unit_vector).to(dtype=hs.dtype, device=hs.device)
+        delta = (coef * vec).to(dtype=hs.dtype, device=hs.device)
         if self.apply_to == "all":
             hs = hs + delta
         else:  # "last": current token position

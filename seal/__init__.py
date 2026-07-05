@@ -18,6 +18,11 @@ Components:
 from .thought_classifier import classify_step, split_into_steps, THOUGHT_TYPES
 from .vector_generation import build_steering_vector
 from .hooks import SealSteerer
+from .capture import (
+    ActivationRecorder,
+    build_contrastive_vector,
+    correctness_probe_auc,
+)
 
 __all__ = [
     "classify_step",
@@ -25,4 +30,7 @@ __all__ = [
     "THOUGHT_TYPES",
     "build_steering_vector",
     "SealSteerer",
+    "ActivationRecorder",
+    "build_contrastive_vector",
+    "correctness_probe_auc",
 ]

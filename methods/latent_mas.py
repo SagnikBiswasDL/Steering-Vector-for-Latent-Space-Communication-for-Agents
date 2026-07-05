@@ -89,6 +89,11 @@ class LatentMASMethod:
         final_texts = ["" for _ in range(batch_size)]
         final_output_tokens = [0 for _ in range(batch_size)]
 
+        # In-pipeline activation capture (native-vector program): per item, one
+        # mean layer-L state per agent, tagged later with final correctness.
+        capture = bool(getattr(self.args, "capture_acts", None)) and getattr(self.model, "act_recorder", None) is not None
+        agent_acts: List[Dict[str, "torch.Tensor"]] = [dict() for _ in range(batch_size)]
+
         for agent in self.agents:
 
             if self.args.prompt == "sequential":
@@ -128,6 +133,8 @@ class LatentMASMethod:
                     active_ids = ids_row[mask_row.bool()].tolist()
                     wrapped_tokens_batch.append(self.model.tokenizer.convert_ids_to_tokens(active_ids))
 
+                if capture:
+                    self.model._record_enable()
                 past_kv = self.model.generate_latent_batch(
                     wrapped_ids,
                     attention_mask=wrapped_mask,
@@ -135,6 +142,11 @@ class LatentMASMethod:
                     past_key_values=past_kv,
                     role=agent.role,
                 )
+                if capture:
+                    mean_acts = self.model._record_pop()
+                    if mean_acts is not None:
+                        for idx in range(batch_size):
+                            agent_acts[idx][agent.role] = mean_acts[idx].clone()
                 if self.sequential_info_only or self.latent_only:
                     new_past_len = _past_length(past_kv)
                     tokens_added = new_past_len - prev_past_len
@@ -176,6 +188,8 @@ class LatentMASMethod:
                 for ids_row, mask_row in zip(judger_ids, judger_mask):
                     active_ids = ids_row[mask_row.bool()].tolist()
                     judger_tokens_batch.append(self.model.tokenizer.convert_ids_to_tokens(active_ids))
+                if capture:
+                    self.model._record_enable()
                 generated_batch, _ = self.model.generate_text_batch(
                     judger_ids,
                     judger_mask,
@@ -185,6 +199,11 @@ class LatentMASMethod:
                     past_key_values=past_for_decoding,
                     role=agent.role,
                 )
+                if capture:
+                    mean_acts = self.model._record_pop()
+                    if mean_acts is not None:
+                        for idx in range(batch_size):
+                            agent_acts[idx][agent.role] = mean_acts[idx].clone()
                 judger_token_counts = list(getattr(self.model, "last_gen_token_counts", []))
                 for idx in range(batch_size):
                     final_text = generated_batch[idx].strip()
@@ -241,18 +260,19 @@ class LatentMASMethod:
                 ok = (pred == gold) if (pred and gold) else False
                 error_msg = None
             
-            results.append(
-                {
-                    "question": item["question"],
-                    "gold": gold,
-                    "solution": item["solution"],
-                    "prediction": pred,
-                    "raw_prediction": final_text,
-                    "agents": agent_traces[idx],
-                    "correct": ok,
-                    "output_tokens": final_output_tokens[idx],
-                }
-            )
+            res = {
+                "question": item["question"],
+                "gold": gold,
+                "solution": item["solution"],
+                "prediction": pred,
+                "raw_prediction": final_text,
+                "agents": agent_traces[idx],
+                "correct": ok,
+                "output_tokens": final_output_tokens[idx],
+            }
+            if capture:
+                res["agent_acts"] = agent_acts[idx]
+            results.append(res)
         return results
     
     def run_batch_vllm(self, items: List[Dict]) -> List[Dict]:

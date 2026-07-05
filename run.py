@@ -116,6 +116,12 @@ def main():
     parser.add_argument("--seal_apply_to", type=str, default="last", choices=["last", "all"], help="Steer only the current token ('last') or all positions ('all')")
     parser.add_argument("--seal_agents", type=str, default="judger", help="Which agent roles to steer: comma-separated subset of planner,critic,refiner,judger (or 'all'). Default: judger.")
 
+    # In-pipeline activation capture (native-vector program): record each agent's
+    # layer-L latent state while it runs inside the full pipeline, then save a cache
+    # (activations + final correctness) for correctness-contrastive vector building.
+    parser.add_argument("--capture_acts", type=str, default=None, help="If set, capture per-agent layer-L activations during the run and save a cache to this path (.pt).")
+    parser.add_argument("--capture_layer", type=int, default=-1, help="Layer to capture activations from; -1 falls back to --seal_layer then 28.")
+
     # vLLM support
     parser.add_argument("--use_vllm", action="store_true", help="Use vLLM backend for generation")
     parser.add_argument("--enable_prefix_caching", action="store_true", help="Enable prefix caching in vLLM for latent_mas")
@@ -234,6 +240,46 @@ def main():
     total_time = time.time() - start_time
 
     acc, correct = evaluate(preds)
+
+    # Persist the in-pipeline activation capture (native-vector program).
+    if getattr(args, "capture_acts", None):
+        import torch as _torch
+        import os as _os
+        roles = ["planner", "critic", "refiner", "judger"]
+        acts_by_role = {r: [] for r in roles}
+        keep_idx = {r: [] for r in roles}
+        corr, out_toks, preds_list, golds, raw_preds = [], [], [], [], []
+        for i, p in enumerate(preds):
+            aa = p.get("agent_acts", {}) or {}
+            corr.append(bool(p.get("correct", False)))
+            out_toks.append(int(p.get("output_tokens", 0)))
+            preds_list.append(p.get("prediction", ""))
+            golds.append(p.get("gold", ""))
+            raw_preds.append(p.get("raw_prediction", ""))
+            for r in roles:
+                if r in aa:
+                    acts_by_role[r].append(aa[r].float().cpu())
+                    keep_idx[r].append(i)
+        acts_tensors = {r: (_torch.stack(v, 0) if v else _torch.empty(0)) for r, v in acts_by_role.items()}
+        blob = {
+            "acts": acts_tensors,               # role -> [n_role, D]
+            "acts_row_index": keep_idx,         # role -> list of global run indices
+            "correct": _torch.tensor(corr, dtype=_torch.bool),
+            "output_tokens": _torch.tensor(out_toks, dtype=_torch.long),
+            "prediction": preds_list,
+            "gold": golds,
+            "raw_prediction": raw_preds,
+            "layer_index": int(getattr(model, "act_recorder").layer_index),
+            "model_name": args.model_name,
+            "task": args.task,
+            "split": args.split,
+            "seed": args.seed,
+            "n": len(preds),
+        }
+        _os.makedirs(_os.path.dirname(_os.path.abspath(args.capture_acts)), exist_ok=True)
+        _torch.save(blob, args.capture_acts)
+        print(f"[capture] saved {len(preds)} runs -> {args.capture_acts} "
+              f"(layer {blob['layer_index']}, correct={sum(corr)}/{len(corr)})")
 
     # Output-token usage (Judger text decoding); 0 if a method does not report it.
     out_toks = [int(p.get("output_tokens", 0)) for p in preds]
