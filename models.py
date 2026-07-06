@@ -129,6 +129,26 @@ class ModelWrapper:
                 f"vector={getattr(args, 'seal_vector')}"
             )
 
+        # One-shot KV-cache steering of the LatentMAS handoff (HF backend only).
+        # Unlike SEAL (per-step residual-stream hook), this makes a single edit to
+        # the shared K/V cache the Judger consumes, at all layers, right before the
+        # Judger decodes. It targets the memory channel the latent agents pass
+        # forward. Applied by the pipeline (methods/latent_mas.py) for the Judger.
+        self.kvsteer = None
+        if args is not None and bool(getattr(args, "kvsteer", False)):
+            from seal.kv_steer import KVCacheSteerer
+            self.kvsteer = KVCacheSteerer.from_artifact(
+                getattr(args, "kvsteer_vector"),
+                c_v=float(getattr(args, "kvsteer_cv", 0.0)),
+                c_k=float(getattr(args, "kvsteer_ck", 0.0)),
+                positions=getattr(args, "kvsteer_positions", "handoff_last"),
+                last_k=int(getattr(args, "kvsteer_last_k", 40)),
+            )
+            print(
+                f"[KVsteer] enabled: {self.kvsteer.summary()} "
+                f"vector={getattr(args, 'kvsteer_vector')}"
+            )
+
     def _seal_activate_for(self, role: Optional[str]) -> bool:
         """Enable the steerer iff SEAL is on and this role is targeted.
 
@@ -371,6 +391,136 @@ class ModelWrapper:
             token_counts.append(cnt)
         self.last_gen_token_counts = token_counts
         return generations, outputs.past_key_values
+
+    def _count_generated_tokens(self, generated_ids: List[int]) -> int:
+        """Count real generated tokens: stop at first EOS; ignore trailing pad."""
+        eos_id = self.tokenizer.eos_token_id
+        pad_id = self.tokenizer.pad_token_id
+        cnt = 0
+        for tok in generated_ids:
+            if eos_id is not None and tok == eos_id:
+                cnt += 1
+                break
+            if pad_id is not None and pad_id != eos_id and tok == pad_id:
+                break
+            cnt += 1
+        return cnt
+
+    @torch.no_grad()
+    def generate_text_batch_kv_judger(
+        self,
+        prompts: List[str],
+        *,
+        max_new_tokens: int = 256,
+        temperature: float = 0.7,
+        top_p: float = 0.95,
+        past_key_values: Optional[Tuple] = None,
+    ) -> Tuple[List[str], Optional[Tuple]]:
+        """Judger decode with one-shot cache steering of the Judger's own final
+        prompt token (the ``judger_token`` control arm).
+
+        Following arXiv:2507.08799 (Appendix C.5), we append a neutral offset
+        token so the real last prompt token (the chat aggregation token) lands in
+        the cache; we prefill everything up to that offset, steer the last cached
+        position across all layers, then generate from the offset token onward.
+        Left padding is used so the aggregation token is the last column for every
+        row. This steers the Judger's context rather than the latent handoff, so
+        any gain the handoff arms show over this arm is attributable to the memory
+        channel specifically.
+        """
+        kvsteer = getattr(self, "kvsteer", None)
+        if kvsteer is None or not kvsteer.has_effect:
+            raise RuntimeError("generate_text_batch_kv_judger requires an active kvsteer")
+
+        # Left-pad tokenize with an appended neutral offset token.
+        offset_str = "\n"
+        offset_id = self.tokenizer(offset_str, add_special_tokens=False)["input_ids"]
+        offset_id = offset_id[-1] if offset_id else self.tokenizer.eos_token_id
+        texts = [p + offset_str for p in prompts]
+        old_side = self.tokenizer.padding_side
+        self.tokenizer.padding_side = "left"
+        try:
+            enc = self.tokenizer(
+                texts, return_tensors="pt", padding=True, add_special_tokens=False
+            )
+        finally:
+            self.tokenizer.padding_side = old_side
+        input_ids = enc["input_ids"].to(self.device)      # [B, L]  (last col = offset)
+        attn = enc["attention_mask"].to(self.device)
+        B, L = input_ids.shape
+        past_len = _past_length(past_key_values) if past_key_values is not None else 0
+
+        # Prefill everything except the offset token onto the handoff cache.
+        prefill_ids = input_ids[:, :-1]                   # [B, L-1]
+        prefill_attn = attn[:, :-1]
+        # Left padding -> real judger tokens are flush-right; position ids continue
+        # from the handoff length, pads get position 0 (masked out anyway).
+        valid = prefill_attn.sum(dim=1)                   # real judger tokens per row
+        Lp = prefill_ids.shape[1]
+        position_ids = torch.zeros((B, Lp), dtype=torch.long, device=self.device)
+        for i in range(B):
+            v = int(valid[i].item())
+            if v > 0:
+                position_ids[i, Lp - v:] = torch.arange(
+                    past_len, past_len + v, device=self.device
+                )
+        if past_len > 0:
+            past_mask = torch.ones((B, past_len), dtype=attn.dtype, device=self.device)
+            prefill_full_mask = torch.cat([past_mask, prefill_attn], dim=-1)
+        else:
+            prefill_full_mask = prefill_attn
+        cache_position = torch.arange(
+            past_len, past_len + Lp, dtype=torch.long, device=self.device
+        )
+        out = self.model(
+            input_ids=prefill_ids,
+            attention_mask=prefill_full_mask,
+            past_key_values=past_key_values,
+            position_ids=position_ids,
+            use_cache=True,
+            return_dict=True,
+            cache_position=cache_position,
+        )
+        cache = out.past_key_values
+
+        # Steer the last cached position (the aggregation token) across all layers.
+        steer_pos = _past_length(cache) - 1
+        kvsteer.apply(cache, [steer_pos])
+
+        # Generate from the offset token, continuing the steered cache.
+        offset_ids = input_ids[:, -1:]                    # [B, 1]
+        gen_full_mask = torch.cat(
+            [prefill_full_mask, torch.ones((B, 1), dtype=attn.dtype, device=self.device)],
+            dim=-1,
+        )
+        gen_cache_position = torch.arange(
+            past_len + Lp, past_len + Lp + 1, dtype=torch.long, device=self.device
+        )
+        outputs = self.model.generate(
+            input_ids=offset_ids,
+            attention_mask=gen_full_mask,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            do_sample=True,
+            pad_token_id=self.tokenizer.pad_token_id,
+            return_dict_in_generate=True,
+            output_scores=False,
+            past_key_values=cache,
+            cache_position=gen_cache_position,
+        )
+        sequences = outputs.sequences
+        # sequences = [offset token | generated...]; skip the offset prefix.
+        gen_start = offset_ids.shape[1]
+        generations: List[str] = []
+        token_counts: List[int] = []
+        for idx in range(sequences.shape[0]):
+            generated_ids = sequences[idx, gen_start:]
+            text = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+            generations.append(text)
+            token_counts.append(self._count_generated_tokens(generated_ids.tolist()))
+        self.last_gen_token_counts = token_counts
+        return generations, None
 
     def tokenize_text(self, text: str) -> torch.Tensor:
         return self.tokenizer(

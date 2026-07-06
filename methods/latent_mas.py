@@ -2,11 +2,17 @@ from typing import Dict, List, Optional, Tuple
 
 from . import default_agents
 from models import ModelWrapper, _past_length
+from seal.kv_steer import HANDOFF_MODES
 from prompts import build_agent_message_sequential_latent_mas, build_agent_message_hierarchical_latent_mas
 from utils import extract_gsm8k_answer, normalize_answer, extract_markdown_python_block, run_with_timeout
 import torch
 import argparse
-from vllm import SamplingParams
+try:
+    from vllm import SamplingParams
+    _HAS_VLLM = True
+except ImportError:
+    SamplingParams = None
+    _HAS_VLLM = False
 import pdb
 
 try:
@@ -43,11 +49,15 @@ class LatentMASMethod:
         if self.latent_only:
             self.sequential_info_only = True
 
-        self.sampling_params = SamplingParams(
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=args.max_new_tokens,
-        )
+        # SamplingParams is only needed for the vLLM decode path; build it lazily
+        # so HF-only runs work without vLLM installed.
+        self.sampling_params = None
+        if _HAS_VLLM and bool(getattr(args, "use_vllm", False)):
+            self.sampling_params = SamplingParams(
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=args.max_new_tokens,
+            )
         self.task = args.task
 
     @staticmethod
@@ -188,17 +198,38 @@ class LatentMASMethod:
                 for ids_row, mask_row in zip(judger_ids, judger_mask):
                     active_ids = ids_row[mask_row.bool()].tolist()
                     judger_tokens_batch.append(self.model.tokenizer.convert_ids_to_tokens(active_ids))
+                # One-shot KV-cache steering of the handoff the Judger consumes
+                # (arXiv:2507.08799). Handoff modes edit past_for_decoding in place
+                # before decoding; the judger_token control arm steers the Judger's
+                # own final prompt token during a dedicated decode.
+                kvsteer = getattr(self.model, "kvsteer", None)
+                kv_on = kvsteer is not None and kvsteer.has_effect
+                kv_judger_token = kv_on and kvsteer.positions == "judger_token"
+                if kv_on and kvsteer.positions in HANDOFF_MODES and past_for_decoding is not None:
+                    n_ed = kvsteer.apply_to_handoff(past_for_decoding)
+                    if n_ed == 0:
+                        print("[KVsteer][warn] handoff edit affected 0 layers")
+
                 if capture:
                     self.model._record_enable()
-                generated_batch, _ = self.model.generate_text_batch(
-                    judger_ids,
-                    judger_mask,
-                    max_new_tokens=self.judger_max_new_tokens,
-                    temperature=self.temperature,
-                    top_p=self.top_p,
-                    past_key_values=past_for_decoding,
-                    role=agent.role,
-                )
+                if kv_judger_token:
+                    generated_batch, _ = self.model.generate_text_batch_kv_judger(
+                        judger_prompts,
+                        max_new_tokens=self.judger_max_new_tokens,
+                        temperature=self.temperature,
+                        top_p=self.top_p,
+                        past_key_values=past_for_decoding,
+                    )
+                else:
+                    generated_batch, _ = self.model.generate_text_batch(
+                        judger_ids,
+                        judger_mask,
+                        max_new_tokens=self.judger_max_new_tokens,
+                        temperature=self.temperature,
+                        top_p=self.top_p,
+                        past_key_values=past_for_decoding,
+                        role=agent.role,
+                    )
                 if capture:
                     mean_acts = self.model._record_pop()
                     if mean_acts is not None:

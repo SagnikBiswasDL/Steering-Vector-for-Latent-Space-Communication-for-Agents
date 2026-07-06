@@ -23,6 +23,7 @@ from .capture import (
     build_contrastive_vector,
     correctness_probe_auc,
 )
+from .kv_steer import KVCacheSteerer, iter_layer_kv, cache_seq_length
 
 __all__ = [
     "classify_step",
@@ -33,4 +34,7 @@ __all__ = [
     "ActivationRecorder",
     "build_contrastive_vector",
     "correctness_probe_auc",
+    "KVCacheSteerer",
+    "iter_layer_kv",
+    "cache_seq_length",
 ]

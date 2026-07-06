@@ -116,6 +116,17 @@ def main():
     parser.add_argument("--seal_apply_to", type=str, default="last", choices=["last", "all"], help="Steer only the current token ('last') or all positions ('all')")
     parser.add_argument("--seal_agents", type=str, default="judger", help="Which agent roles to steer: comma-separated subset of planner,critic,refiner,judger (or 'all'). Default: judger.")
 
+    # KV-cache steering (arXiv:2507.08799): one-shot edit of the shared K/V cache
+    # the Judger consumes (the latent-agent handoff), across all layers. HF backend.
+    parser.add_argument("--kvsteer", action="store_true", help="Enable one-shot KV-cache steering of the LatentMAS handoff before the Judger decodes")
+    parser.add_argument("--kvsteer_vector", type=str, default=None, help="Path to the KV steering-vector artifact (.pt) with per-layer keys/values")
+    parser.add_argument("--kvsteer_cv", type=float, default=0.0, help="Value steering coefficient c_v (0 reproduces plain LatentMAS)")
+    parser.add_argument("--kvsteer_ck", type=float, default=0.0, help="Key steering coefficient c_k (paper default ~0)")
+    parser.add_argument("--kvsteer_positions", type=str, default="handoff_last",
+                        choices=["handoff_last", "handoff_lastk", "handoff_all", "judger_token"],
+                        help="Which cache positions to steer: last handoff column, last-k handoff columns, all handoff columns, or the Judger's own final prompt token (control arm)")
+    parser.add_argument("--kvsteer_last_k", type=int, default=40, help="Number of trailing handoff columns to steer when --kvsteer_positions handoff_lastk")
+
     # In-pipeline activation capture (native-vector program): record each agent's
     # layer-L latent state while it runs inside the full pipeline, then save a cache
     # (activations + final correctness) for correctness-contrastive vector building.
@@ -306,6 +317,11 @@ def main():
                 "seal_coef": float(getattr(args, "seal_coef", 0.0)),
                 "seal_layer": int(getattr(args, "seal_layer", -1)),
                 "seal_agents": getattr(args, "seal_agents", "judger"),
+                "kvsteer": bool(getattr(args, "kvsteer", False)),
+                "kvsteer_cv": float(getattr(args, "kvsteer_cv", 0.0)),
+                "kvsteer_ck": float(getattr(args, "kvsteer_ck", 0.0)),
+                "kvsteer_positions": getattr(args, "kvsteer_positions", "handoff_last"),
+                "kvsteer_last_k": int(getattr(args, "kvsteer_last_k", 40)),
             },
             ensure_ascii=False,
         )
