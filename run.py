@@ -107,6 +107,8 @@ def main():
     parser.add_argument("--think", action="store_true", help="Manually add think token in the prompt for LatentMAS")
     parser.add_argument("--latent_space_realign", action="store_true")
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--agents", type=str, default=None,
+                        help="LatentMAS agent chain for ablations: comma-separated subset of planner,critic,refiner (Judger is always appended last). e.g. 'planner,critic' or 'full'. Default: full 4-agent chain.")
 
     # SEAL steering (token efficiency): applied to the Judger's text decoding (HF backend)
     parser.add_argument("--seal", action="store_true", help="Enable SEAL steering during Judger decoding")
@@ -298,6 +300,22 @@ def main():
     n_tok = len(out_toks) if out_toks else 1
     mean_output_tokens = total_output_tokens / n_tok
 
+    # Failure taxonomy: correct / wrong (parsed but incorrect) / no_answer (unparseable/empty).
+    n_correct_fx = sum(1 for p in preds if p.get("correct"))
+    n_no_answer = sum(1 for p in preds if not str(p.get("prediction", "")).strip())
+    n_wrong = len(preds) - n_correct_fx - n_no_answer
+
+    # LatentMAS agent-chain / latent-compute accounting (for ablation studies).
+    agents_spec = getattr(args, "agents", None)
+    latent_forwards = None
+    upstream_roles = None
+    if args.method == "latent_mas":
+        from methods import agents_from_spec as _afs
+        chain = _afs(agents_spec)
+        upstream_roles = [a.role for a in chain if a.role != "judger"]
+        # Each non-Judger agent runs 1 prefill + latent_steps continuation forwards.
+        latent_forwards = len(upstream_roles) * (int(args.latent_steps) + 1)
+
     # Load results in JSON format
     print(
         json.dumps(
@@ -322,6 +340,13 @@ def main():
                 "kvsteer_ck": float(getattr(args, "kvsteer_ck", 0.0)),
                 "kvsteer_positions": getattr(args, "kvsteer_positions", "handoff_last"),
                 "kvsteer_last_k": int(getattr(args, "kvsteer_last_k", 40)),
+                "agents": agents_spec or "full",
+                "upstream_roles": upstream_roles,
+                "n_upstream_agents": (len(upstream_roles) if upstream_roles is not None else None),
+                "latent_forwards": latent_forwards,
+                "n_correct": n_correct_fx,
+                "n_wrong": n_wrong,
+                "n_no_answer": n_no_answer,
             },
             ensure_ascii=False,
         )

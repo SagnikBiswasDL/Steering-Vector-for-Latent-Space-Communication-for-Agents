@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Tuple
 
-from . import default_agents
+from . import default_agents, agents_from_spec
 from models import ModelWrapper, _past_length
 from seal.kv_steer import HANDOFF_MODES
 from prompts import build_agent_message_sequential_latent_mas, build_agent_message_hierarchical_latent_mas
@@ -39,7 +39,8 @@ class LatentMASMethod:
         self.temperature = temperature
         self.top_p = top_p
         self.generate_bs = max(1, generate_bs)
-        self.agents = default_agents()
+        # Agent chain; subset-able for ablations via --agents (Judger always last).
+        self.agents = agents_from_spec(getattr(args, "agents", None)) if args else default_agents()
         self.method_name = 'latent_mas'
         self.vllm_device = args.device 
         self.HF_device = args.device2
