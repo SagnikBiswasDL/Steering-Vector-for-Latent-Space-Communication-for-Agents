@@ -1,0 +1,113 @@
+{
+  "meta": {
+    "task": "gsm8k",
+    "split": "test",
+    "n": 150,
+    "model": "Qwen/Qwen3-14B",
+    "seed": 42,
+    "kvsteer_vector": "artifacts/kv_steer_vectors/qwen3-14b/gsm8k_cot.pt",
+    "positions": [
+      "handoff_last",
+      "judger_token"
+    ],
+    "cvs": [
+      8.0,
+      12.0,
+      -8.0
+    ],
+    "ck": 0.0
+  },
+  "rows": [
+    {
+      "group": "control",
+      "positions": "handoff_last",
+      "coef": 0.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.9466666666666667,
+      "correct": 142,
+      "mean_output_tokens": 587.72,
+      "sec": 909.3,
+      "sec_per_sample": 6.062
+    },
+    {
+      "group": "handoff_last",
+      "positions": "handoff_last",
+      "coef": 8.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.9133333333333333,
+      "correct": 137,
+      "mean_output_tokens": 590.0266666666666,
+      "sec": 935.2,
+      "sec_per_sample": 6.235
+    },
+    {
+      "group": "handoff_last",
+      "positions": "handoff_last",
+      "coef": 12.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.92,
+      "correct": 138,
+      "mean_output_tokens": 609.8266666666667,
+      "sec": 996.1,
+      "sec_per_sample": 6.641
+    },
+    {
+      "group": "handoff_last",
+      "positions": "handoff_last",
+      "coef": -8.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.9333333333333333,
+      "correct": 140,
+      "mean_output_tokens": 604.4933333333333,
+      "sec": 985.3,
+      "sec_per_sample": 6.569
+    },
+    {
+      "group": "judger_token",
+      "positions": "judger_token",
+      "coef": 8.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.94,
+      "correct": 141,
+      "mean_output_tokens": 440.2733333333333,
+      "sec": 939.2,
+      "sec_per_sample": 6.262
+    },
+    {
+      "group": "judger_token",
+      "positions": "judger_token",
+      "coef": 12.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.9333333333333333,
+      "correct": 140,
+      "mean_output_tokens": 392.23333333333335,
+      "sec": 882.7,
+      "sec_per_sample": 5.884
+    },
+    {
+      "group": "judger_token",
+      "positions": "judger_token",
+      "coef": -8.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.9333333333333333,
+      "correct": 140,
+      "mean_output_tokens": 622.5266666666666,
+      "sec": 1052.0,
+      "sec_per_sample": 7.013
+    }
+  ]
+}

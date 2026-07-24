@@ -1,0 +1,13 @@
+# Extra dependencies NOT listed in upstream requirements.txt.
+# requirements.txt is kept byte-for-byte identical to the upstream fork, but
+# the upstream code imports a couple of packages it does not pin. These are
+# captured here so the environment is reproducible.
+
+# Imported unconditionally at the top of models.py (`import matplotlib.pyplot as plt`).
+# Required just to import the model wrapper, even on CPU.
+matplotlib
+
+# GPU/CUDA-only. methods/latent_mas.py has an unguarded `from vllm import SamplingParams`,
+# and models.py uses vLLM when --use_vllm is set. vLLM does not install on macOS/CPU,
+# so install this only in the CUDA environment used for benchmark verification.
+# vllm

@@ -1,0 +1,185 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usepackage{booktabs}
+\usepackage{amsmath,amssymb}
+
+\title{Integrating ASC with LatentMAS}
+\subtitle{Week of July 16 --- pitch \& findings}
+\author{Sagnik Biswas}
+\date{July 2026}
+
+\begin{document}
+
+%-----------------------------------------------------------------------------
+\begin{frame}
+    \titlepage
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{Pitch in one slide}
+    \begin{block}{Idea}
+        LatentMAS often uses a large latent budget $K$ (paper setups go up to $\sim$40).
+        Can a learned residual vector $v$ (ASC/CES-style) make a \textbf{small-$K$} system
+        match \textbf{full-$K$} accuracy --- i.e.\ latent-compute compression?
+    \end{block}
+    \begin{itemize}
+        \item Pipeline: Planner $\rightarrow$ Critic $\rightarrow$ Refiner $\rightarrow$ Judger
+        \item Upstream agents: latent steps + shared KV (no text)
+        \item Only Judger decodes tokens
+        \item Target: $K{=}5$ steered $\approx$ $K{=}10$ unsteered (18 vs 33 latent forwards)
+    \end{itemize}
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{ASC: the intervention}
+    At transformer layer $\ell$, add a direction in residual space:
+    \[
+      h^{(\ell)} \;\leftarrow\; h^{(\ell)} + \alpha\, v
+      \qquad (v\in\mathbb{R}^{d},\; \alpha\in\mathbb{R})
+    \]
+    \begin{itemize}
+        \item Base LM weights \textbf{frozen}
+        \item $\alpha$ = strength (sweep; $\alpha{<}0$ = control)
+        \item The interesting part: \textbf{how is $v$ computed?}
+    \end{itemize}
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{How $v$ is computed (training-free)}
+    Collect layer-$\ell$ activations on ``good'' vs ``bad'' runs:
+    \[
+      \bar h^{\pm} \;=\; \frac{1}{N_{\pm}}\sum_i h_i^{\pm},
+      \qquad
+      v \;=\; \frac{\bar h^{+} - \bar h^{-}}{\lVert \bar h^{+} - \bar h^{-} \rVert_2}
+    \]
+    \begin{itemize}
+        \item $+$ : correct / preferred behavior
+        \item $-$ : incorrect / undesired behavior
+        \item Classic mass-mean / difference-of-means (SEAL, MoD-style, native vectors)
+    \end{itemize}
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{How $v$ is computed (learned CES)}
+    Treat $v$ as a parameter. Energy of trajectory $y$ under steered model $p_v$:
+    \[
+      E_v(y) \;=\; -\frac{1}{|y|}\sum_t \log p_v(y_t\mid \mathrm{ctx},\, y_{<t})
+    \]
+    Ranking loss on pairs $(y^{+}, y^{-})$:
+    \[
+      \mathcal{L}(v) \;=\; \mathrm{softplus}\!\big(E_v(y^{+})-E_v(y^{-})\big)
+      \;+\; \lambda\max\!\big(\mathrm{KL}(p_{\mathrm{ref}}\|p_v)-\varepsilon,\,0\big)
+    \]
+    \begin{itemize}
+        \item Optimize $v$ by GD; host frozen
+        \item Move $v$ so good completions are lower-energy than bad ones
+    \end{itemize}
+    \vspace{0.15cm}
+    {\footnotesize Azizi et al., ACL 2026 Findings (ASC/CES).}
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{Our adaptation to LatentMAS}
+    \begin{itemize}
+        \item Apply $v$ during \textbf{upstream latent steps only} (not Judger decode)
+        \item Hope: short rollout $K_{\mathrm{small}}$ $\approx$ useful KV of $K_{\mathrm{full}}$
+        \item $v$ from mean-diff or CES on full- vs reduced-budget pairs
+        \item This week's sprint: CES path
+    \end{itemize}
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{Gate 1: MedQA $K$-curve (Qwen3-14B, $n{=}100$)}
+    \small
+    \begin{center}
+    \begin{tabular}{lcccc}
+    \toprule
+    $K$ & Acc & Lat (s) & Judger toks & Lat.\ fwds \\
+    \midrule
+    0  & 0.78 & 40.6 & 1731 & 3 \\
+    5  & 0.77 & 26.2 & 1097 & 18 \\
+    \textbf{10} & \textbf{0.83} & \textbf{22.9} & \textbf{944} & 33 \\
+    20 & 0.79 & 24.9 & 992 & 63 \\
+    40 & 0.79 & 25.8 & 967 & 123 \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+    \normalsize
+    \vspace{0.2cm}
+    \begin{alertblock}{Key}
+        Best point is $K{=}10$, not $K{=}40$.\\
+        Cutting $K$ does \textbf{not} save wall-clock --- Judger length dominates.
+    \end{alertblock}
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{Next research direction}
+    \textbf{So far:} cutting $K$ does not save runtime (Judger text dominates);
+    trainable $v$ works in code, but we lack enough hard pairs to prove recovery.
+    \vspace{0.35cm}
+    \begin{block}{Where to go next}
+        \begin{enumerate}
+            \item Finish latent recovery properly --- more $K{=}10$-right / $K{=}5$-wrong pairs,
+                  then held-out MedQA
+            \item \textbf{or} pivot to Judger-side steering (ASC/SEAL), where tokens and
+                  wall-clock actually live --- and combine with latent $v$ only if (1) works
+        \end{enumerate}
+    \end{block}
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{Update: we built + ran the learned latent steer}
+    \textbf{Reframed goal:} not $K$-budget recovery (Gate 1 killed that) but
+    \emph{boost} --- can a learned CES vector on the latent agents push accuracy
+    \textbf{above} the best unsteered point ($K{=}10$)?
+    \begin{itemize}
+        \item Trained $v$ end-to-end through the differentiable multi-agent KV
+              (CES rank loss), applied to Planner/Critic/Refiner latent steps only.
+        \item Controls: $\alpha{=}0$ sanity, $\alpha{<}0$ negate, random-$v$;
+              paired bootstrap CIs; dev split (test held out).
+        \item Two sites: last latent token vs \textbf{all} latent tokens.
+        \item Qwen3-4B, MedQA, layer 20, seed 42.
+    \end{itemize}
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{Results: 4B MedQA (dev), $K{=}10$, unsteered $=0.65$}
+    \small
+    \begin{center}
+    \begin{tabular}{lccc}
+    \toprule
+    $\alpha$ (all-tokens $v$) & Acc & $\Delta$ & mean toks \\
+    \midrule
+    $+1$ & 0.600 & $-0.05$ & 962 \\
+    $+2$ & 0.675 & $+0.025$ & 1018 \\
+    $+4$ & 0.625 & $-0.025$ & 969 \\
+    $+8$ & 0.600 & $-0.05$ & 1005 \\
+    \textbf{$-8$} & \textbf{0.000} & \textbf{$-0.65$} & \textbf{1946} \\
+    \bottomrule
+    \end{tabular}
+    \end{center}
+    \normalsize
+    \vspace{0.15cm}
+    Positive strengths sit within noise of baseline. $\alpha{=}-8$ collapses to 0 with
+    output length $\approx$ the 2048 cap: the Judger \textbf{degenerates}. Last-token
+    steering was fully inert (flat to $\alpha{=}16$).
+\end{frame}
+
+%-----------------------------------------------------------------------------
+\begin{frame}{Verdict}
+    \begin{alertblock}{Learned latent-agent steering: can disrupt, cannot improve}
+        Across last-token \& all-tokens, $\alpha\in[1,16]$, both signs, 3 training
+        configs: \textbf{no direction improves accuracy}. The only reachable effect is
+        destructive ($\alpha{<}0$ all-tokens $\to 0$).
+    \end{alertblock}
+    \begin{itemize}
+        \item Matches the probe: correctness is barely encoded upstream
+              (AUC 0.46--0.64) but readable at the Judger (0.69--0.80).
+        \item Paper framing: steering helps the \emph{text-emitting Judger's efficiency}
+              (SEAL, $-17$ to $-39\%$ tokens), but the \emph{non-text latent channel} is
+              not a lever for accuracy --- an honest negative with a mechanism.
+        \item Next (optional): 14B + GSM8K confirmation; else write it up.
+    \end{itemize}
+\end{frame}
+
+\end{document}

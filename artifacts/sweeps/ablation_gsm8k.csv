@@ -1,0 +1,9 @@
+config,roles,n_upstream,latent_forwards,n,accuracy,correct,wrong,no_answer,mean_output_tokens,total_sec,sec_per_sample
+full,planner|critic|refiner|judger,3,123,300,0.93,279,21,0,587.24,1864.4,6.215
+judger_only,judger,0,0,300,0.91,273,27,0,749.5066666666667,1356.4,4.521
+planner_judger,planner|judger,1,41,300,0.91,273,27,0,657.07,1519.8,5.066
+planner_critic_judger,planner|critic|judger,2,82,300,0.9133333333333333,274,26,0,609.9566666666667,1752.9,5.843
+no_critic,planner|refiner|judger,2,82,300,0.9133333333333333,274,26,0,633.6466666666666,1739.2,5.797
+no_planner,critic|refiner|judger,2,82,300,0.9233333333333333,277,23,0,655.16,1858.7,6.196
+refiner_judger,refiner|judger,1,41,300,0.92,276,24,0,685.6766666666666,1602.0,5.34
+critic_judger,critic|judger,1,41,300,0.9066666666666666,272,28,0,715.8833333333333,1511.4,5.038

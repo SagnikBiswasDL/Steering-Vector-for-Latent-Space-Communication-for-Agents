@@ -1,0 +1,87 @@
+{
+  "meta": {
+    "task": "gsm8k",
+    "split": "test",
+    "n": 150,
+    "model": "Qwen/Qwen3-14B",
+    "seed": 42,
+    "kvsteer_vector": "artifacts/kv_steer_vectors/qwen3-14b/gsm8k_cot.pt",
+    "positions": [
+      "handoff_all"
+    ],
+    "cvs": [
+      0.05,
+      0.1,
+      0.2,
+      -0.1
+    ],
+    "ck": 0.0
+  },
+  "rows": [
+    {
+      "group": "control",
+      "positions": "handoff_last",
+      "coef": 0.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.9466666666666667,
+      "correct": 142,
+      "mean_output_tokens": 587.72,
+      "sec": 909.4,
+      "sec_per_sample": 6.063
+    },
+    {
+      "group": "handoff_all",
+      "positions": "handoff_all",
+      "coef": 0.05,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.92,
+      "correct": 138,
+      "mean_output_tokens": 569.0666666666667,
+      "sec": 789.8,
+      "sec_per_sample": 5.266
+    },
+    {
+      "group": "handoff_all",
+      "positions": "handoff_all",
+      "coef": 0.1,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.94,
+      "correct": 141,
+      "mean_output_tokens": 584.4,
+      "sec": 863.7,
+      "sec_per_sample": 5.758
+    },
+    {
+      "group": "handoff_all",
+      "positions": "handoff_all",
+      "coef": 0.2,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.9266666666666666,
+      "correct": 139,
+      "mean_output_tokens": 502.84,
+      "sec": 846.7,
+      "sec_per_sample": 5.645
+    },
+    {
+      "group": "handoff_all",
+      "positions": "handoff_all",
+      "coef": -0.1,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 150,
+      "accuracy": 0.9333333333333333,
+      "correct": 140,
+      "mean_output_tokens": 635.7933333333333,
+      "sec": 920.0,
+      "sec_per_sample": 6.133
+    }
+  ]
+}

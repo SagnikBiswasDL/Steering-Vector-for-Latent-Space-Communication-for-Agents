@@ -15,3 +15,6 @@ env/
 
 # OS
 .DS_Store
+
+# Cursor IDE local state (plans, indexes)
+.cursor/

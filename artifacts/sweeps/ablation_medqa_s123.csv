@@ -1,0 +1,4 @@
+config,roles,n_upstream,latent_forwards,n,accuracy,correct,wrong,no_answer,mean_output_tokens,total_sec,sec_per_sample
+judger_only,judger,0,0,300,0.75,225,75,0,886.9966666666667,1723.6,5.745
+planner_judger,planner|judger,1,41,300,0.6866666666666666,206,94,0,1142.15,2291.7,7.639
+planner_critic_judger,planner|critic|judger,2,82,300,0.69,207,93,0,1026.65,2901.9,9.673

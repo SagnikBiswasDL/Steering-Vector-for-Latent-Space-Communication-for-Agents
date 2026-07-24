@@ -1,0 +1,6 @@
+group,positions,coef,ck,last_k,n,accuracy,correct,mean_output_tokens,sec,sec_per_sample
+control,handoff_last,0.0,0.0,40,24,0.9583333333333334,23,714.9166666666666,190.0,7.918
+handoff_last,handoff_last,8.0,0.0,40,24,0.9583333333333334,23,654.375,130.0,5.415
+handoff_last,handoff_last,-8.0,0.0,40,24,1.0,24,696.2916666666666,152.2,6.341
+judger_token,judger_token,8.0,0.0,40,24,0.9166666666666666,22,505.9583333333333,189.3,7.889
+judger_token,judger_token,-8.0,0.0,40,24,0.9583333333333334,23,644.9166666666666,119.5,4.979

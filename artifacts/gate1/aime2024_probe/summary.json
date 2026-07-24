@@ -1,0 +1,133 @@
+{
+  "config": {
+    "model_name": "Qwen/Qwen3-14B",
+    "task": "aime2024",
+    "split": "test",
+    "k_grid": "0,10,40",
+    "max_samples": -1,
+    "max_new_tokens": 2048,
+    "generate_bs": 1,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "seed": 42,
+    "prompt": "sequential",
+    "device": "cuda",
+    "out_dir": "artifacts/gate1/aime2024_probe",
+    "n_boot": 2000
+  },
+  "n_examples": 30,
+  "summaries": [
+    {
+      "k": 0,
+      "n": 30,
+      "accuracy": 0.0,
+      "accuracy_ci": [
+        0.0,
+        0.0
+      ],
+      "mean_latency_sec": 47.980277324964604,
+      "latency_ci": [
+        47.91925883743602,
+        48.042497117305174
+      ],
+      "mean_output_tokens": 2048.0,
+      "latent_forwards": 3,
+      "n_failures": 0,
+      "n_no_answer": 0,
+      "peak_gpu_mem_gb": 28.17668628692627
+    },
+    {
+      "k": 10,
+      "n": 30,
+      "accuracy": 0.06666666666666667,
+      "accuracy_ci": [
+        0.0,
+        0.16666666666666666
+      ],
+      "mean_latency_sec": 48.49010091734429,
+      "latency_ci": [
+        48.446125848675145,
+        48.53383211014172
+      ],
+      "mean_output_tokens": 2048.0,
+      "latent_forwards": 33,
+      "n_failures": 0,
+      "n_no_answer": 0,
+      "peak_gpu_mem_gb": 34.0939507484436
+    },
+    {
+      "k": 40,
+      "n": 30,
+      "accuracy": 0.0,
+      "accuracy_ci": [
+        0.0,
+        0.0
+      ],
+      "mean_latency_sec": 50.62734615765512,
+      "latency_ci": [
+        50.585354588134216,
+        50.66849542701306
+      ],
+      "mean_output_tokens": 2048.0,
+      "latent_forwards": 123,
+      "n_failures": 0,
+      "n_no_answer": 0,
+      "peak_gpu_mem_gb": 28.283058643341064
+    }
+  ],
+  "paired_vs_max_k": {
+    "0": {
+      "mean_diff": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0,
+      "credible_positive": false,
+      "credible_negative": false
+    },
+    "10": {
+      "mean_diff": -0.06666666666666667,
+      "ci_lo": -0.16666666666666666,
+      "ci_hi": 0.0,
+      "credible_positive": false,
+      "credible_negative": false
+    }
+  },
+  "budget_suggestion": {
+    "k_full": 10,
+    "k_small": 0,
+    "candidates": [
+      {
+        "k_small": 0,
+        "k_full": 10,
+        "paired_acc_diff_full_minus_small": {
+          "mean_diff": 0.06666666666666667,
+          "ci_lo": 0.0,
+          "ci_hi": 0.16666666666666666,
+          "credible_positive": false,
+          "credible_negative": false
+        },
+        "latency_reduction": 0.010513972599247245,
+        "credible_accuracy_loss": false,
+        "meaningful_latency_reduction": false,
+        "selected": false
+      }
+    ],
+    "recommendation": {
+      "k_small": 0,
+      "k_full": 10,
+      "paired_acc_diff_full_minus_small": {
+        "mean_diff": 0.06666666666666667,
+        "ci_lo": 0.0,
+        "ci_hi": 0.16666666666666666,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "latency_reduction": 0.010513972599247245,
+      "credible_accuracy_loss": false,
+      "meaningful_latency_reduction": false,
+      "selected": false
+    },
+    "note": "Selected via paired bootstrap CI (credible accuracy loss) and ≥15% wall-clock latency reduction; not a fixed point-gap rule."
+  },
+  "primary_compute_metric": "mean_latency_sec",
+  "secondary_compute_metric": "latent_forwards (unequal cost; KV grows)"
+}

@@ -1,0 +1,45 @@
+Steering-Vector-for-Latent-Space-Communication-for-Agents
+=========================================================
+
+This repository contains a verbatim fork of the LatentMAS implementation,
+used as the unmodified baseline for our research on steering vectors for
+latent-space multi-agent communication.
+
+Upstream source
+---------------
+  Project:  LatentMAS (Latent Collaboration in Multi-Agent Systems)
+  Authors:  Gen-Verse / Jiaru Zou, Xiyuan Yang, Ruizhong Qiu, Gaotang Li,
+            Katherine Tieu, Pan Lu, Ke Shen, Hanghang Tong, Yejin Choi,
+            Jingrui He, James Zou, Mengdi Wang, Ling Yang
+  Repo:     https://github.com/Gen-Verse/LatentMAS
+  Commit:   9a9e4d331eb11430bd9e64754c6b252b06d73031 (branch: main)
+  Paper:    Latent Collaboration in Multi-Agent Systems, arXiv:2511.20639
+  License:  Apache License 2.0 (see LICENSE)
+
+The following files are reproduced verbatim from the upstream repository at
+the commit above (byte-for-byte identical; git blob SHAs match):
+
+  LICENSE, README.md, __init__.py, data.py, models.py, prompts.py,
+  requirements.txt, run.py, utils.py,
+  methods/__init__.py, methods/baseline.py, methods/latent_mas.py,
+  methods/text_mas.py, data/medqa.json,
+  assets/*, example_logs/*
+
+Local additions (not part of upstream)
+---------------------------------------
+  NOTICE                 - this file
+  README.md              - a short fork banner prepended above the upstream
+                           README content (upstream content otherwise intact)
+  2511.20639v3.pdf       - local copy of the LatentMAS paper
+
+Citation
+--------
+  @article{zou2025latentmas,
+    title={Latent Collaboration in Multi-Agent Systems},
+    author={Zou, Jiaru and Yang, Xiyuan and Qiu, Ruizhong and Li, Gaotang and
+            Tieu, Katherine and Lu, Pan and Shen, Ke and Tong, Hanghang and
+            Choi, Yejin and He, Jingrui and Zou, James and Wang, Mengdi and
+            Yang, Ling},
+    journal={arXiv preprint arXiv:2511.20639},
+    year={2025}
+  }
