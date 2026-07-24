@@ -1,0 +1,38 @@
+{
+  "mode": "real",
+  "model_name": "Qwen/Qwen3-4B",
+  "k_small": 5,
+  "ces_layer": 20,
+  "steer_phase": "latent_only",
+  "trainable_host": [],
+  "trainable_ces": [
+    "v"
+  ],
+  "losses": [
+    9.71496295928955,
+    9.546911239624023,
+    9.466053009033203,
+    9.55400562286377,
+    9.550045013427734
+  ],
+  "grad_norms": [
+    326.3937072753906,
+    0.38498708605766296,
+    2.810284376144409,
+    10.033092498779297,
+    186.65286254882812
+  ],
+  "grad_nonzero": true,
+  "loss_decreased": true,
+  "allclose_zero_vs_baseline": true,
+  "allclose_rtol": 0.0001,
+  "allclose_atol": 1e-05,
+  "e_base": 9.591265678405762,
+  "e_zero": 9.591265678405762,
+  "checkpointing_kv": {
+    "attempted": true,
+    "compatible": true,
+    "error": null
+  },
+  "passed": true
+}

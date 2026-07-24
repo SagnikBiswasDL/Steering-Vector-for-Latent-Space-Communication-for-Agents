@@ -1,0 +1,11 @@
+{
+  "mode": "toy",
+  "passed": true,
+  "trainable": [
+    "v"
+  ],
+  "grad_norm": 0.09888280183076859,
+  "allclose_disabled": true,
+  "allclose_rtol": 0.0001,
+  "allclose_atol": 1e-05
+}

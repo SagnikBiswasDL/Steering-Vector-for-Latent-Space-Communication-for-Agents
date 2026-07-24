@@ -88,11 +88,13 @@ class SealSteerer:
             hs = output[0]
         else:
             hs = output
+        # Clone before edit: never mutate a view in-place.
+        hs = hs.clone()
         delta = (coef * vec).to(dtype=hs.dtype, device=hs.device)
         if self.apply_to == "all":
             hs = hs + delta
         else:  # "last": current token position
-            hs[:, -1, :] = hs[:, -1, :] + delta
+            hs = torch.cat([hs[:, :-1, :], hs[:, -1:, :] + delta], dim=1)
         if isinstance(output, tuple):
             return (hs,) + tuple(output[1:])
         return hs

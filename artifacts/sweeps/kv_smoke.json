@@ -1,0 +1,86 @@
+{
+  "meta": {
+    "task": "gsm8k",
+    "split": "test",
+    "n": 24,
+    "model": "Qwen/Qwen3-14B",
+    "seed": 42,
+    "kvsteer_vector": "artifacts/kv_steer_vectors/qwen3-14b/gsm8k_cot.pt",
+    "positions": [
+      "handoff_last",
+      "judger_token"
+    ],
+    "cvs": [
+      8.0,
+      -8.0
+    ],
+    "ck": 0.0
+  },
+  "rows": [
+    {
+      "group": "control",
+      "positions": "handoff_last",
+      "coef": 0.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 24,
+      "accuracy": 0.9583333333333334,
+      "correct": 23,
+      "mean_output_tokens": 714.9166666666666,
+      "sec": 190.0,
+      "sec_per_sample": 7.918
+    },
+    {
+      "group": "handoff_last",
+      "positions": "handoff_last",
+      "coef": 8.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 24,
+      "accuracy": 0.9583333333333334,
+      "correct": 23,
+      "mean_output_tokens": 654.375,
+      "sec": 130.0,
+      "sec_per_sample": 5.415
+    },
+    {
+      "group": "handoff_last",
+      "positions": "handoff_last",
+      "coef": -8.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 24,
+      "accuracy": 1.0,
+      "correct": 24,
+      "mean_output_tokens": 696.2916666666666,
+      "sec": 152.2,
+      "sec_per_sample": 6.341
+    },
+    {
+      "group": "judger_token",
+      "positions": "judger_token",
+      "coef": 8.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 24,
+      "accuracy": 0.9166666666666666,
+      "correct": 22,
+      "mean_output_tokens": 505.9583333333333,
+      "sec": 189.3,
+      "sec_per_sample": 7.889
+    },
+    {
+      "group": "judger_token",
+      "positions": "judger_token",
+      "coef": -8.0,
+      "ck": 0.0,
+      "last_k": 40,
+      "n": 24,
+      "accuracy": 0.9583333333333334,
+      "correct": 23,
+      "mean_output_tokens": 644.9166666666666,
+      "sec": 119.5,
+      "sec_per_sample": 4.979
+    }
+  ]
+}

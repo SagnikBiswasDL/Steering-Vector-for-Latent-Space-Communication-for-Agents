@@ -26,6 +26,9 @@ class LatentMASMethod:
         model: ModelWrapper,
         *,
         latent_steps: int = 10,
+        planner_steps: Optional[int] = None,
+        critic_steps: Optional[int] = None,
+        refiner_steps: Optional[int] = None,
         judger_max_new_tokens: int = 256,
         temperature: float = 0.7,
         top_p: float = 0.95,
@@ -34,7 +37,18 @@ class LatentMASMethod:
     ) -> None:
         self.args = args
         self.model = model
-        self.latent_steps = latent_steps
+        self.latent_steps = int(latent_steps)
+        # Per-agent budgets; None means fall back to latent_steps (original interface).
+        if args is not None:
+            if planner_steps is None:
+                planner_steps = getattr(args, "planner_steps", None)
+            if critic_steps is None:
+                critic_steps = getattr(args, "critic_steps", None)
+            if refiner_steps is None:
+                refiner_steps = getattr(args, "refiner_steps", None)
+        self.planner_steps = int(planner_steps) if planner_steps is not None else None
+        self.critic_steps = int(critic_steps) if critic_steps is not None else None
+        self.refiner_steps = int(refiner_steps) if refiner_steps is not None else None
         self.judger_max_new_tokens = judger_max_new_tokens
         self.temperature = temperature
         self.top_p = top_p
@@ -60,6 +74,34 @@ class LatentMASMethod:
                 max_tokens=args.max_new_tokens,
             )
         self.task = args.task
+
+    def steps_for_role(self, role: str) -> int:
+        """Latent continuation steps for an upstream agent role."""
+        role = (role or "").lower()
+        override = {
+            "planner": self.planner_steps,
+            "critic": self.critic_steps,
+            "refiner": self.refiner_steps,
+        }.get(role)
+        if override is not None:
+            return int(override)
+        return int(self.latent_steps)
+
+    def latent_forwards(self) -> int:
+        """Actual latent-stage forwards: sum_role (K_role + 1) over upstream agents."""
+        total = 0
+        for agent in self.agents:
+            if agent.role == "judger":
+                continue
+            total += self.steps_for_role(agent.role) + 1
+        return total
+
+    def budget_tuple(self) -> Tuple[int, int, int]:
+        return (
+            self.steps_for_role("planner"),
+            self.steps_for_role("critic"),
+            self.steps_for_role("refiner"),
+        )
 
     @staticmethod
     def _slice_tensor(tensor: torch.Tensor, tokens_to_keep: int) -> torch.Tensor:
@@ -125,6 +167,7 @@ class LatentMASMethod:
 
             if agent.role != "judger":
                 prev_past_len = _past_length(past_kv)
+                role_steps = self.steps_for_role(agent.role)
 
                 if self.args.think:
                         wrapped_prompts = [f"{prompt}<think>" for prompt in prompts]
@@ -149,7 +192,7 @@ class LatentMASMethod:
                 past_kv = self.model.generate_latent_batch(
                     wrapped_ids,
                     attention_mask=wrapped_mask,
-                    latent_steps=self.latent_steps,
+                    latent_steps=role_steps,
                     past_key_values=past_kv,
                     role=agent.role,
                 )
@@ -161,7 +204,7 @@ class LatentMASMethod:
                 if self.sequential_info_only or self.latent_only:
                     new_past_len = _past_length(past_kv)
                     tokens_added = new_past_len - prev_past_len
-                    tokens_to_keep = self.latent_steps if self.latent_only else tokens_added
+                    tokens_to_keep = role_steps if self.latent_only else tokens_added
                     past_kv = self._truncate_past(past_kv, tokens_to_keep)
 
                 for idx in range(batch_size):
@@ -174,13 +217,13 @@ class LatentMASMethod:
                             "input": wrapped_prompts[idx],
                             "input_ids": trimmed_ids,
                             "input_tokens": wrapped_tokens_batch[idx],
-                            "latent_steps": self.latent_steps,
+                            "latent_steps": role_steps,
                             "output": "",
                         }
                     )
             else:
 
-                past_for_decoding = past_kv if self.latent_steps > 0 else None
+                past_for_decoding = past_kv if (_past_length(past_kv) > 0) else None
 
                 if self.args.think:
                         judger_prompts = [f"{prompt}<think>" for prompt in prompts]
@@ -336,6 +379,7 @@ class LatentMASMethod:
 
             if agent.role != "judger":
                 prev_past_len = _past_length(past_kv)
+                role_steps = self.steps_for_role(agent.role)
 
                 # to wrap all latent thoughts from previous agents
                 if self.args.think:
@@ -359,18 +403,18 @@ class LatentMASMethod:
                 past_kv, previous_hidden_embedding = self.model.generate_latent_batch_hidden_state(
                     wrapped_ids,
                     attention_mask=wrapped_mask,
-                    latent_steps=self.latent_steps,
+                    latent_steps=role_steps,
                     past_key_values=past_kv,
                 )
                 if self.sequential_info_only or self.latent_only:
                     new_past_len = _past_length(past_kv)
                     tokens_added = new_past_len - prev_past_len
-                    tokens_to_keep = self.latent_steps if self.latent_only else tokens_added
+                    tokens_to_keep = role_steps if self.latent_only else tokens_added
                     past_kv = self._truncate_past(past_kv, tokens_to_keep)
 
                 if self.latent_only:
-                    if self.latent_steps > 0:
-                        previous_hidden_embedding = previous_hidden_embedding[:, -self.latent_steps:, :]
+                    if role_steps > 0:
+                        previous_hidden_embedding = previous_hidden_embedding[:, -role_steps:, :]
                     else:
                         previous_hidden_embedding = previous_hidden_embedding[:, 0:0, :]
 
@@ -389,7 +433,7 @@ class LatentMASMethod:
                             "input": wrapped_prompts[idx],
                             "input_ids": trimmed_ids,
                             "input_tokens": wrapped_tokens_batch[idx],
-                            "latent_steps": self.latent_steps,
+                            "latent_steps": role_steps,
                             "output": "",
                         }
                     )

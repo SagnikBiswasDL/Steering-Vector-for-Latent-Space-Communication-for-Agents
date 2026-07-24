@@ -149,6 +149,83 @@ class ModelWrapper:
                 f"vector={getattr(args, 'kvsteer_vector')}"
             )
 
+        # CES / K-budget trainable residual steerer (HF backend). Separate from SEAL.
+        # Primary experiment: apply only during recurrent latent steps (not prefill).
+        self.ces = None
+        if args is not None and bool(getattr(args, "ces", False)):
+            self.attach_ces_from_args(args)
+
+    def attach_ces_from_args(self, args) -> None:
+        """Construct and register a TrainableSteerer from CLI / Namespace attrs."""
+        from seal.ces_steerer import TrainableSteerer
+
+        hidden = int(self.model.config.hidden_size)
+        layer = int(getattr(args, "ces_layer", 28))
+        if layer < 0:
+            layer = max(0, int(getattr(self.model.config, "num_hidden_layers", 1)) - 2)
+        roles_raw = getattr(args, "ces_agents", "planner,critic,refiner") or "planner,critic,refiner"
+        if str(roles_raw).strip().lower() == "all":
+            agents = {"planner", "critic", "refiner", "judger"}
+        else:
+            agents = {r.strip().lower() for r in str(roles_raw).split(",") if r.strip()}
+        steer_phase = getattr(args, "ces_steer_phase", "latent_only")
+        init_std = float(getattr(args, "ces_init_std", 0.0))
+        coef = float(getattr(args, "ces_coef", 1.0))
+        vec_path = getattr(args, "ces_vector", None)
+        if vec_path:
+            self.ces = TrainableSteerer.from_artifact(
+                vec_path, coef=coef, agents=agents, steer_phase=steer_phase
+            )
+            if layer >= 0:
+                self.ces.layer_index = layer
+        else:
+            self.ces = TrainableSteerer(
+                hidden_size=hidden,
+                layer_index=layer,
+                coef=coef,
+                init_std=init_std,
+                agents=agents,
+                steer_phase=steer_phase,
+            )
+        self.ces.register(self.model)
+        self.ces.to(self.device)
+        self.ces.disable()
+        print(
+            f"[CES] enabled: layer={self.ces.layer_index} coef={self.ces.coef} "
+            f"phase={self.ces.steer_phase} agents={sorted(self.ces.agents)} "
+            f"vector={vec_path or 'random/zero'}"
+        )
+
+    def attach_ces(
+        self,
+        *,
+        layer_index: int,
+        coef: float = 1.0,
+        init_std: float = 0.0,
+        agents=None,
+        steer_phase: str = "latent_only",
+        vector: Optional[torch.Tensor] = None,
+    ):
+        """Programmatic CES attach (smoke tests / trainers)."""
+        from seal.ces_steerer import TrainableSteerer
+
+        hidden = int(self.model.config.hidden_size)
+        self.ces = TrainableSteerer(
+            hidden_size=hidden,
+            layer_index=int(layer_index),
+            coef=float(coef),
+            init_std=float(init_std),
+            agents=set(agents or {"planner", "critic", "refiner"}),
+            steer_phase=steer_phase,
+        )
+        if vector is not None:
+            with torch.no_grad():
+                self.ces.v.copy_(vector.float().view(-1).to(self.ces.v.device))
+        self.ces.register(self.model)
+        self.ces.to(self.device)
+        self.ces.disable()
+        return self.ces
+
     def _seal_activate_for(self, role: Optional[str]) -> bool:
         """Enable the steerer iff SEAL is on and this role is targeted.
 
@@ -279,7 +356,7 @@ class ModelWrapper:
         realign_matrix = torch.linalg.solve(gram, rhs)
         target_norm = input_weight.norm(dim=1).mean().detach()
 
-        if self.args.latent_space_realign:
+        if getattr(self.args, "latent_space_realign", False):
             pass
         else:
             # keep the matrix, for further normalization
@@ -349,20 +426,24 @@ class ModelWrapper:
                 )
                 attention_mask = torch.cat([past_mask, attention_mask], dim=-1)
         use_seal = self._seal_activate_for(role)
+        # temperature <= 0 → greedy / deterministic decoding for Gate 1 curves.
+        do_sample = float(temperature) > 0.0
+        gen_kwargs = dict(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=self.tokenizer.pad_token_id,
+            return_dict_in_generate=True,
+            output_scores=False,
+            past_key_values=past_key_values,
+            cache_position=cache_position,
+            do_sample=do_sample,
+        )
+        if do_sample:
+            gen_kwargs["temperature"] = temperature
+            gen_kwargs["top_p"] = top_p
         try:
-            outputs = self.model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                do_sample=True,
-                pad_token_id=self.tokenizer.pad_token_id,
-                return_dict_in_generate=True,
-                output_scores=False,
-                past_key_values=past_key_values,
-                cache_position=cache_position,
-            )
+            outputs = self.model.generate(**gen_kwargs)
         finally:
             if use_seal:
                 self.seal.disable()
@@ -529,16 +610,40 @@ class ModelWrapper:
             return_tensors="pt",
         )["input_ids"].to(self.device)
 
-    @torch.no_grad()
-    def generate_latent_batch(
+    def _ces_prepare(self, role: Optional[str]) -> bool:
+        """Enable CES for this role if configured; return whether it was armed."""
+        ces = getattr(self, "ces", None)
+        if ces is None:
+            return False
+        role_l = (role or "").lower()
+        if role_l and role_l not in ces.agents:
+            ces.disable()
+            return False
+        ces.set_active_role(role)
+        ces.enable()
+        return True
+
+    def _ces_finish(self, armed: bool) -> None:
+        ces = getattr(self, "ces", None)
+        if armed and ces is not None:
+            ces.disable()
+
+    def _generate_latent_batch_impl(
         self,
         input_ids: torch.Tensor,
-        attention_mask: Optional[torch.Tensor] = None,
+        attention_mask: Optional[torch.Tensor],
         *,
         latent_steps: int,
         past_key_values: Optional[Tuple] = None,
         role: Optional[str] = None,
+        detach_debug: bool = True,
     ) -> Tuple:
+        """Shared latent rollout. Caller controls torch.no_grad / enable_grad.
+
+        CES: by default steerer is active only during recurrent latent steps
+        (phase='latent'), not during textual prefill. Prefill+latent is selected
+        via ces.steer_phase == 'prefill_and_latent'.
+        """
         if input_ids.dim() != 2:
             raise ValueError("input_ids must be 2D with shape [batch, seq_len]")
 
@@ -557,49 +662,17 @@ class ModelWrapper:
                 )
                 attention_mask = torch.cat([past_mask, attention_mask], dim=-1)
 
-        # Steer this agent's latent forward passes if its role is targeted.
         _seal_on = self._seal_activate_for(role)
+        _ces_on = self._ces_prepare(role)
+        ces = getattr(self, "ces", None)
+        try:
+            if ces is not None and _ces_on:
+                ces.set_phase("prefill")
 
-        outputs = self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            past_key_values=past_key_values,
-            use_cache=True,
-            output_hidden_states=True,
-            return_dict=True,
-        )
-        past = outputs.past_key_values
-
-        e_t = outputs.hidden_states[0][:, -1, :]          # [B, D]
-        last_hidden = outputs.hidden_states[-1][:, -1, :] # [B, D]
-        h_t = last_hidden.detach().clone()
-
-        e_t_plus_1 = None
-        latent_vecs_all: List[torch.Tensor] = []
-        latent_vecs_all.append(e_t.detach().clone())
-
-        for step in range(latent_steps):
-
-            source_model = self.HF_model if hasattr(self, "HF_model") else self.model
-            latent_vec = self._apply_latent_realignment(last_hidden, source_model)
-
-            latent_vecs_all.append(latent_vec.detach().clone())
-
-            if step == 0:
-                e_t_plus_1 = latent_vec.detach().clone()
-            
-            latent_embed = latent_vec.unsqueeze(1)
-
-            past_len = _past_length(past)
-            latent_mask = torch.ones(
-                (latent_embed.shape[0], past_len + 1),
-                dtype=torch.long,
-                device=self.device,
-            )
             outputs = self.model(
-                inputs_embeds=latent_embed,
-                attention_mask=latent_mask,
-                past_key_values=past,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
                 use_cache=True,
                 output_hidden_states=True,
                 return_dict=True,
@@ -607,10 +680,149 @@ class ModelWrapper:
             past = outputs.past_key_values
             last_hidden = outputs.hidden_states[-1][:, -1, :]
 
-        if _seal_on:
-            self.seal.disable()
+            if ces is not None and _ces_on:
+                ces.set_phase("latent")
+
+            for step in range(latent_steps):
+                source_model = self.HF_model if hasattr(self, "HF_model") else self.model
+                latent_vec = self._apply_latent_realignment(last_hidden, source_model)
+                if detach_debug:
+                    # Side-channel only; do not break the live latent chain.
+                    _ = latent_vec.detach()
+                latent_embed = latent_vec.unsqueeze(1)
+
+                past_len = _past_length(past)
+                latent_mask = torch.ones(
+                    (latent_embed.shape[0], past_len + 1),
+                    dtype=torch.long,
+                    device=self.device,
+                )
+                outputs = self.model(
+                    inputs_embeds=latent_embed,
+                    attention_mask=latent_mask,
+                    past_key_values=past,
+                    use_cache=True,
+                    output_hidden_states=True,
+                    return_dict=True,
+                )
+                past = outputs.past_key_values
+                last_hidden = outputs.hidden_states[-1][:, -1, :]
+        finally:
+            if _seal_on:
+                self.seal.disable()
+            self._ces_finish(_ces_on)
         return past
-    
+
+    @torch.no_grad()
+    def generate_latent_batch(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        *,
+        latent_steps: int,
+        past_key_values: Optional[Tuple] = None,
+        role: Optional[str] = None,
+    ) -> Tuple:
+        return self._generate_latent_batch_impl(
+            input_ids,
+            attention_mask,
+            latent_steps=latent_steps,
+            past_key_values=past_key_values,
+            role=role,
+            detach_debug=True,
+        )
+
+    def generate_latent_batch_grad(
+        self,
+        input_ids: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        *,
+        latent_steps: int,
+        past_key_values: Optional[Tuple] = None,
+        role: Optional[str] = None,
+    ) -> Tuple:
+        """Latent rollout with gradients enabled (CES training / Gate 2).
+
+        Host weights should be frozen; only the CES vector should require grad.
+        Does not use gradient checkpointing by default — validate separately if
+        enabling checkpointing with differentiable KV caches.
+        """
+        was_training = self.model.training
+        self.model.eval()
+        try:
+            with torch.enable_grad():
+                return self._generate_latent_batch_impl(
+                    input_ids,
+                    attention_mask,
+                    latent_steps=latent_steps,
+                    past_key_values=past_key_values,
+                    role=role,
+                    detach_debug=False,
+                )
+        finally:
+            if was_training:
+                self.model.train()
+
+    def teacher_force_nll(
+        self,
+        past_key_values: Optional[Tuple],
+        prompt_ids: torch.Tensor,
+        target_ids: torch.Tensor,
+        *,
+        role: Optional[str] = None,
+        steer_judger: bool = False,
+    ) -> torch.Tensor:
+        """Length-normalized NLL of target_ids after prompt under past_kv.
+
+        Used for Gate 2/3 answer-NLL smoke and for CES energy E_v(y|x).
+        By default CES is not applied during Judger teacher-force (primary claim
+        steers upstream latent steps only).
+        """
+        from seal.ces import length_normalized_nll_from_logits
+
+        if prompt_ids.dim() != 2 or target_ids.dim() != 2:
+            raise ValueError("prompt_ids and target_ids must be [B, T]")
+        if prompt_ids.shape[0] != target_ids.shape[0]:
+            raise ValueError("batch size mismatch")
+
+        # Optionally arm CES for judger (smoke / ablation only).
+        ces_armed = False
+        if steer_judger:
+            ces_armed = self._ces_prepare(role or "judger")
+            ces = getattr(self, "ces", None)
+            if ces is not None and ces_armed:
+                ces.set_phase("latent")
+        try:
+            full_ids = torch.cat([prompt_ids, target_ids], dim=1)
+            attn = torch.ones_like(full_ids, device=full_ids.device)
+            if past_key_values is not None:
+                past_len = _past_length(past_key_values)
+                if past_len > 0:
+                    past_mask = torch.ones(
+                        (attn.shape[0], past_len),
+                        dtype=attn.dtype,
+                        device=attn.device,
+                    )
+                    attn = torch.cat([past_mask, attn], dim=-1)
+            outputs = self.model(
+                input_ids=full_ids,
+                attention_mask=attn,
+                past_key_values=past_key_values,
+                use_cache=False,
+                return_dict=True,
+            )
+            logits = outputs.logits  # [B, prompt+target, V]
+            # Causal: predict token t from position t-1.
+            # Targets occupy the last |target| positions of full_ids; their
+            # predicting logits are at indices [prompt_len-1 : prompt_len+target_len-1]
+            # relative to the prompt+target segment (which starts at index 0 of logits).
+            prompt_len = prompt_ids.shape[1]
+            target_len = target_ids.shape[1]
+            pred_logits = logits[:, prompt_len - 1 : prompt_len + target_len - 1, :]
+            return length_normalized_nll_from_logits(pred_logits, target_ids)
+        finally:
+            self._ces_finish(ces_armed)
+
     @torch.no_grad()
     def generate_latent_batch_hidden_state(
         self,

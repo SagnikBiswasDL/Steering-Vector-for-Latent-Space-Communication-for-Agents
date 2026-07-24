@@ -28,6 +28,7 @@ def load_aime2025(split: str = "train", cache_dir: Optional[str] = None) -> Iter
             "question": problem,
             "solution": answer,
             "gold": gold,
+            "source": "aime2025",
         }
 
 
@@ -41,7 +42,18 @@ def load_aime2024(split: str = "train", cache_dir: Optional[str] = None) -> Iter
             "question": problem,
             "solution": answer,
             "gold": gold,
+            "source": "aime2024",
         }
+
+
+def load_aime_pooled(cache_dir: Optional[str] = None) -> Iterable[Dict]:
+    """Pool AIME 2024 + 2025 for Gate 1 primary curves (not a probe-only set)."""
+    for item in load_aime2024(split="train", cache_dir=cache_dir):
+        yield item
+    for item in load_aime2025(split="train", cache_dir=cache_dir):
+        out = dict(item)
+        out.setdefault("source", "aime2025")
+        yield out
 
 
 def load_gpqa_diamond(split: str = "test", cache_dir: Optional[str] = None) -> Iterable[Dict]:
@@ -199,25 +211,61 @@ def load_humanevalplus(
 from typing import Iterable, Dict, Optional
 from datasets import load_dataset
 
+# Frozen MedQA index splits (300 total). Gate1 used indices [0,100) as eval —
+# keep that as the held-out test set for all steering claims.
+MEDQA_TEST_END = 100
+MEDQA_TRAIN_END = 220  # [100, 220) train/pairs
+# [220, 300) development / role-budget mapping
+
+
 def load_medqa(split=None, subset=None, cache_dir=None):
+    """Load MedQA. split: None/all | 'test' | 'train' | 'dev'."""
 
     ds = load_dataset("json", data_files="./data/medqa.json", split='train')
+    rows = []
     for item in ds:
         question = item["query"]
         raw_answer = str(item["answer"])
 
         choice_map = {"0":"A", "1":"B", "2":"C", "3":"D"}
 
+        answer = None
         for idx, op in enumerate(item['options']):
             if raw_answer in op:
                 answer = choice_map[str(idx)].lower()
                 break
+        if answer is None:
+            continue
 
         gold = normalize_answer(answer)
-
-        yield {
+        rows.append({
             "question": question,
             "solution": answer,
             "gold": gold,
-        }
+        })
+
+    n = len(rows)
+    if split in (None, "", "all"):
+        selected = rows
+    elif split == "test":
+        selected = rows[: min(MEDQA_TEST_END, n)]
+    elif split == "train":
+        selected = rows[MEDQA_TEST_END: min(MEDQA_TRAIN_END, n)]
+    elif split == "dev":
+        selected = rows[MEDQA_TRAIN_END:n]
+    else:
+        raise ValueError(f"Unknown MedQA split {split!r}; use train|dev|test|all")
+
+    for i, row in enumerate(selected):
+        out = dict(row)
+        # Absolute index into the full 300-row file (for provenance).
+        if split == "test":
+            out["idx"] = i
+        elif split == "train":
+            out["idx"] = MEDQA_TEST_END + i
+        elif split == "dev":
+            out["idx"] = MEDQA_TRAIN_END + i
+        else:
+            out["idx"] = i
+        yield out
 

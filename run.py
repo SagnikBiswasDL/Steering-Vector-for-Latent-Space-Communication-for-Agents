@@ -99,7 +99,13 @@ def main():
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--split", type=str, default="test")
     parser.add_argument("--max_new_tokens", type=int, default=4096)
-    parser.add_argument("--latent_steps", type=int, default=0, help="Number of latent steps for LatentMAS method")
+    parser.add_argument("--latent_steps", type=int, default=0, help="Default latent steps for all upstream agents")
+    parser.add_argument("--planner_steps", type=int, default=None,
+                        help="Override Planner latent steps (default: --latent_steps)")
+    parser.add_argument("--critic_steps", type=int, default=None,
+                        help="Override Critic latent steps (default: --latent_steps)")
+    parser.add_argument("--refiner_steps", type=int, default=None,
+                        help="Override Refiner latent steps (default: --latent_steps)")
     parser.add_argument("--temperature", type=float, default=0.6)
     parser.add_argument("--top_p", type=float, default=0.95)
     parser.add_argument("--generate_bs", type=int, default=20, help="Batch size for generation")
@@ -134,6 +140,18 @@ def main():
     # (activations + final correctness) for correctness-contrastive vector building.
     parser.add_argument("--capture_acts", type=str, default=None, help="If set, capture per-agent layer-L activations during the run and save a cache to this path (.pt).")
     parser.add_argument("--capture_layer", type=int, default=-1, help="Layer to capture activations from; -1 falls back to --seal_layer then 28.")
+
+    # CES / K-budget activation steering (trainable residual vector). Off by default.
+    parser.add_argument("--ces", action="store_true", help="Enable CES residual steering during LatentMAS (HF)")
+    parser.add_argument("--ces_vector", type=str, default=None, help="Optional path to a saved CES vector (.pt)")
+    parser.add_argument("--ces_layer", type=int, default=28, help="Decoder layer for CES intervention")
+    parser.add_argument("--ces_coef", type=float, default=1.0, help="Multiplier on the CES vector")
+    parser.add_argument("--ces_agents", type=str, default="planner,critic,refiner",
+                        help="Roles to steer (default: upstream latent agents only)")
+    parser.add_argument("--ces_steer_phase", type=str, default="latent_only",
+                        choices=["none", "latent_only", "prefill_and_latent"],
+                        help="Primary: latent_only (skip textual prefill). Ablation: prefill_and_latent.")
+    parser.add_argument("--ces_init_std", type=float, default=0.0, help="Init std for trainable v when no artifact")
 
     # vLLM support
     parser.add_argument("--use_vllm", action="store_true", help="Use vLLM backend for generation")
@@ -313,8 +331,13 @@ def main():
         from methods import agents_from_spec as _afs
         chain = _afs(agents_spec)
         upstream_roles = [a.role for a in chain if a.role != "judger"]
-        # Each non-Judger agent runs 1 prefill + latent_steps continuation forwards.
-        latent_forwards = len(upstream_roles) * (int(args.latent_steps) + 1)
+        # Each non-Judger agent runs 1 prefill + K_role continuation forwards.
+        latent_forwards = 0
+        for role in upstream_roles:
+            k = getattr(args, f"{role}_steps", None)
+            if k is None:
+                k = args.latent_steps
+            latent_forwards += int(k) + 1
 
     # Load results in JSON format
     print(

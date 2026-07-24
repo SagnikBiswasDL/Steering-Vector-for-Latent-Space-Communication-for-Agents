@@ -18,6 +18,14 @@ Components:
 from .thought_classifier import classify_step, split_into_steps, THOUGHT_TYPES
 from .vector_generation import build_steering_vector
 from .hooks import SealSteerer
+from .ces_steerer import TrainableSteerer, STEER_PHASES
+from .ces import (
+    length_normalized_nll_from_logits,
+    ces_rank_loss,
+    kl_tokenwise,
+    hinge_kl_penalty,
+    combined_ces_objective,
+)
 from .capture import (
     ActivationRecorder,
     build_contrastive_vector,
@@ -31,6 +39,13 @@ __all__ = [
     "THOUGHT_TYPES",
     "build_steering_vector",
     "SealSteerer",
+    "TrainableSteerer",
+    "STEER_PHASES",
+    "length_normalized_nll_from_logits",
+    "ces_rank_loss",
+    "kl_tokenwise",
+    "hinge_kl_penalty",
+    "combined_ces_objective",
     "ActivationRecorder",
     "build_contrastive_vector",
     "correctness_probe_auc",
