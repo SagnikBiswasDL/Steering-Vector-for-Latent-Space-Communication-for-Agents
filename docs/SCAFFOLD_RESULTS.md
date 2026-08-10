@@ -138,12 +138,12 @@ Finish n=80 + GSM8K (running), add ≥1 more seed and a hard task (AIME), measur
 latent-forward savings, and an accuracy–token Pareto (real vs synthglobal vs none). Deliver:
 *"LatentMAS's upstream agents are replaceable by a fixed synthetic KV scaffold."*
 
-**B. Shrink the scaffold (higher-upside systems win).**
-`pca32` works but `trunc64` fails → the scaffold is low-rank but needs length. Try: (i) a
-**low-rank** synthetic scaffold (store rank-32 factors, not full KV) to cut memory; (ii)
-**learn** a short scaffold (m≪1023 slots) end-to-end (now with a tailwind: low rank suffices)
-to also cut KV memory; (iii) find the min length that still works (sweep synth_len 64→1023).
-Goal: save upstream compute AND KV memory.
+**B. Shrink the scaffold (higher-upside systems win) — IN FLIGHT (bigger compute).**
+First learned m=64 (NLL-only, gauss init) hit 0.500 < fixed full synth. Next gamble:
+`scripts/run_shrink_big.sh` — multi-seed short fixed (l32/l64/l128) + learned m∈{256,128,64}
+with **pool init** + **nll+kl** (KL to real-cache Judger logits), n_train=80, steps=800.
+Success bar: short scaffold ≈ real accuracy **and** KV length ≪1023.
+Trainer: `scripts/train_synth_scaffold.py`.
 
 **C. Mechanistic depth (paper strength).**
 Why does a statistical scaffold induce the concise mode? Probe the Judger's attention over

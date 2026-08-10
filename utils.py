@@ -47,6 +47,57 @@ def normalize_answer(ans: Optional[str]) -> Optional[str]:
     return ans.strip().lower()
 
 
+def extract_boxed_answer(text: str) -> Optional[str]:
+    """Return the content of the LAST \\boxed{...} with balanced braces."""
+    if text is None:
+        return None
+    idx = text.rfind("\\boxed")
+    if idx == -1:
+        return None
+    i = idx + len("\\boxed")
+    while i < len(text) and text[i] != "{":
+        i += 1
+    if i >= len(text):
+        return None
+    depth, start = 0, i + 1
+    for j in range(i, len(text)):
+        if text[j] == "{":
+            depth += 1
+        elif text[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:j]
+    return text[start:]
+
+
+def normalize_math_answer(ans: Optional[str]) -> Optional[str]:
+    """Light MATH-style normalization for string-equality grading.
+
+    Not a full CAS equivalence check (1/2 vs 0.5 won't match) but handles the
+    common LaTeX noise: \\boxed, \\text, \\left/\\right, spacing macros, $,
+    \\dfrac->\\frac, trailing punctuation. Good enough for a research signal;
+    swap in math_verify/sympy for a camera-ready grade.
+    """
+    if ans is None:
+        return None
+    s = str(ans)
+    if "\\boxed" in s:
+        b = extract_boxed_answer(s)
+        if b is not None:
+            s = b
+    s = re.sub(r"\\text\s*\{([^}]*)\}", r"\1", s)
+    s = re.sub(r"\\mbox\s*\{([^}]*)\}", r"\1", s)
+    for tok in ["\\left", "\\right", "\\!", "\\,", "\\;", "\\:", "\\ ", "$", "\\$"]:
+        s = s.replace(tok, "")
+    s = s.replace("\\dfrac", "\\frac").replace("\\tfrac", "\\frac")
+    s = s.replace("\\%", "").replace("\\degree", "").replace("^\\circ", "")
+    s = s.replace("{", "").replace("}", "")
+    s = s.replace(" ", "")
+    s = s.strip().rstrip(".").rstrip()
+    s = s.lower()
+    return s or None
+
+
 def extract_markdown_python_block(text: str) -> Optional[str]:
     pattern = r"```python(.*?)```"
     matches = re.findall(pattern, text, re.DOTALL | re.IGNORECASE)

@@ -1,0 +1,379 @@
+{
+  "config": {
+    "model_name": "Qwen/Qwen3-14B",
+    "task": "math",
+    "split": "test",
+    "k": 40,
+    "n": 60,
+    "judger_budget": 2048,
+    "relay_budget": 16,
+    "sink": 4,
+    "rank": 8,
+    "importance": "key_norm",
+    "with_evict": false,
+    "with_shuffled": true,
+    "with_crosstask": true,
+    "donor_task": "gsm8k",
+    "asc_vector": "artifacts/seal_vectors/qwen3-14b/gsm8k_layer28_n200.pt",
+    "asc_coef": 40.0,
+    "asc_layer": -1,
+    "asc_apply_to": "last",
+    "smoke": false,
+    "batch_size": 12,
+    "seed": 42,
+    "device": "cuda",
+    "out_dir": "artifacts/exp2x2/ladder_math_s42"
+  },
+  "n": 60,
+  "arms": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "S",
+    "X"
+  ],
+  "run_asc": true,
+  "compressors": {
+    "obf": "obf budget=16 sink=4 importance=key_norm rank=8"
+  },
+  "per_arm": {
+    "A": {
+      "relay": "full",
+      "asc": false,
+      "n": 60,
+      "acc": 0.7833333333333333,
+      "mean_tokens": 1081.6,
+      "median_tokens": 886.0,
+      "mean_decode_s": 10.076258534627657,
+      "mean_e2e_s": 13.086077747866511,
+      "mean_tok_per_s": 107.29453040076841,
+      "mean_relay_mb": 101.7734375,
+      "mean_relay_positions": 651.35,
+      "eos_rate": 0.8333333333333334,
+      "mean_peak_mem_mb": 37985.428125
+    },
+    "B": {
+      "relay": "full",
+      "asc": true,
+      "n": 60,
+      "acc": 0.8333333333333334,
+      "mean_tokens": 1003.4833333333333,
+      "median_tokens": 715.5,
+      "mean_decode_s": 9.857292147229119,
+      "mean_e2e_s": 12.867111360467975,
+      "mean_tok_per_s": 101.57590970036897,
+      "mean_relay_mb": 101.7734375,
+      "mean_relay_positions": 651.35,
+      "eos_rate": 0.8833333333333333,
+      "mean_peak_mem_mb": 37888.80888671875
+    },
+    "C": {
+      "relay": "obf",
+      "asc": false,
+      "n": 60,
+      "acc": 0.7,
+      "mean_tokens": 1333.0666666666666,
+      "median_tokens": 1199.0,
+      "mean_decode_s": 7.434158376107612,
+      "mean_e2e_s": 10.464723315152032,
+      "mean_tok_per_s": 179.0101920483706,
+      "mean_relay_mb": 3.75,
+      "mean_relay_positions": 24.0,
+      "eos_rate": 0.6833333333333333,
+      "mean_peak_mem_mb": 35970.1283203125
+    },
+    "D": {
+      "relay": "obf",
+      "asc": true,
+      "n": 60,
+      "acc": 0.75,
+      "mean_tokens": 1290.4,
+      "median_tokens": 1116.0,
+      "mean_decode_s": 7.484488128622373,
+      "mean_e2e_s": 10.51505306766679,
+      "mean_tok_per_s": 172.1139060236174,
+      "mean_relay_mb": 3.75,
+      "mean_relay_positions": 24.0,
+      "eos_rate": 0.7166666666666667,
+      "mean_peak_mem_mb": 35969.9408203125
+    },
+    "S": {
+      "relay": "shuffled",
+      "asc": false,
+      "n": 60,
+      "acc": 0.7833333333333333,
+      "mean_tokens": 1198.3333333333333,
+      "median_tokens": 967.0,
+      "mean_decode_s": 10.072380643710494,
+      "mean_e2e_s": 13.08219985694935,
+      "mean_tok_per_s": 119.04195816735395,
+      "mean_relay_mb": 101.7734375,
+      "mean_relay_positions": 651.35,
+      "eos_rate": 0.8166666666666667,
+      "mean_peak_mem_mb": 37985.428125
+    },
+    "X": {
+      "relay": "crosstask",
+      "asc": false,
+      "n": 60,
+      "acc": 0.7333333333333333,
+      "mean_tokens": 1210.15,
+      "median_tokens": 1052.0,
+      "mean_decode_s": 9.549701052779954,
+      "mean_e2e_s": 12.559520266018808,
+      "mean_tok_per_s": 126.51488393018529,
+      "mean_relay_mb": 101.25,
+      "mean_relay_positions": 648.0,
+      "eos_rate": 0.75,
+      "mean_peak_mem_mb": 37594.2826171875
+    }
+  },
+  "interaction": {
+    "tokens": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": 251.46666666666667,
+        "ci_lo": 187.96416666666667,
+        "ci_hi": 319.25333333333333,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": -78.11666666666666,
+        "ci_lo": -144.45833333333331,
+        "ci_hi": -13.594583333333363,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": -42.666666666666664,
+        "ci_lo": -99.81041666666667,
+        "ci_hi": 16.50374999999998,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": 35.45,
+        "ci_lo": -58.735416666666666,
+        "ci_hi": 132.78625,
+        "n": 60
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": 208.8,
+        "ci_lo": 148.87666666666667,
+        "ci_hi": 274.2512499999999,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "shuffled_vs_full (S-A)": {
+        "mean_diff": 116.73333333333333,
+        "ci_lo": 52.053333333333335,
+        "ci_hi": 185.50208333333333,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "crosstask_vs_full (X-A)": {
+        "mean_diff": 128.55,
+        "ci_lo": 63.44666666666667,
+        "ci_hi": 198.02541666666664,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      }
+    },
+    "decode_s": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": -2.6421001585200425,
+        "ci_lo": -2.8568641256797127,
+        "ci_hi": -2.4417290009774217,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": -0.2189663873985412,
+        "ci_lo": -0.3507509743814204,
+        "ci_hi": -0.08821585894420043,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": 0.05032975251475982,
+        "ci_lo": 0.04571886659082447,
+        "ci_hi": 0.055308482325894685,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": 0.269296139913301,
+        "ci_lo": 0.13406889213171494,
+        "ci_hi": 0.4055538593281789,
+        "n": 60
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -2.591770406005283,
+        "ci_lo": -2.8104939021925546,
+        "ci_hi": -2.3903408842585567,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "shuffled_vs_full (S-A)": {
+        "mean_diff": -0.0038778909171622187,
+        "ci_lo": -0.006145859619266222,
+        "ci_hi": -0.0017360976745841078,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "crosstask_vs_full (X-A)": {
+        "mean_diff": -0.5265574818477038,
+        "ci_lo": -0.7355888497411639,
+        "ci_hi": -0.33217137848298733,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      }
+    },
+    "e2e_s": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": -2.6213544327144818,
+        "ci_lo": -2.8351017831952783,
+        "ci_hi": -2.420682004737383,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": -0.21896638739854132,
+        "ci_lo": -0.3507509743814206,
+        "ci_hi": -0.08821585894420053,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": 0.05032975251476017,
+        "ci_lo": 0.04571886659082471,
+        "ci_hi": 0.055308482325895116,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": 0.2692961399133015,
+        "ci_lo": 0.1340688921317154,
+        "ci_hi": 0.4055538593281795,
+        "n": 60
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -2.5710246801997223,
+        "ci_lo": -2.7876187315400855,
+        "ci_hi": -2.3690320737343025,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "shuffled_vs_full (S-A)": {
+        "mean_diff": -0.0038778909171622187,
+        "ci_lo": -0.006145859619266222,
+        "ci_hi": -0.0017360976745841078,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "crosstask_vs_full (X-A)": {
+        "mean_diff": -0.5265574818477038,
+        "ci_lo": -0.7355888497411639,
+        "ci_hi": -0.33217137848298733,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      }
+    },
+    "acc": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": -0.08333333333333333,
+        "ci_lo": -0.16666666666666666,
+        "ci_hi": 0.0,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": 0.05,
+        "ci_lo": -0.016666666666666666,
+        "ci_hi": 0.13333333333333333,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": 0.05,
+        "ci_lo": -0.03333333333333333,
+        "ci_hi": 0.13333333333333333,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": 0.0,
+        "ci_lo": -0.1,
+        "ci_hi": 0.1,
+        "n": 60
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -0.03333333333333333,
+        "ci_lo": -0.1,
+        "ci_hi": 0.03333333333333333,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "shuffled_vs_full (S-A)": {
+        "mean_diff": 0.0,
+        "ci_lo": -0.05,
+        "ci_hi": 0.05,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "crosstask_vs_full (X-A)": {
+        "mean_diff": -0.05,
+        "ci_lo": -0.11666666666666667,
+        "ci_hi": 0.0,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      }
+    }
+  },
+  "correctness_flips": {
+    "C_vs_A (compression)": {
+      "n": 60,
+      "gained": 1,
+      "lost": 6,
+      "net": -5
+    },
+    "D_vs_C (ASC|obf)": {
+      "n": 60,
+      "gained": 5,
+      "lost": 2,
+      "net": 3
+    },
+    "D_vs_A (combined)": {
+      "n": 60,
+      "gained": 1,
+      "lost": 3,
+      "net": -2
+    }
+  },
+  "elapsed_s": 3453.3803067207336
+}

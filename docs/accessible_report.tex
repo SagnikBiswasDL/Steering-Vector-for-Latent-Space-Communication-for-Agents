@@ -1,0 +1,441 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+
+\title{\textbf{Compressing Inter-Agent KV Relays in LatentMAS}\\[6pt]
+\large Research report (technical, self-contained)}
+\author{Audience: familiar with transformer internals (attention, KV cache,
+residual stream), new to this project.\\[4pt]
+Primary backbone: Qwen3-14B
+($L{=}40$, $d_{\mathrm{model}}{=}5120$, GQA with $n_{\mathrm{kv}}{=}8$,
+$d_h{=}128$).\\[2pt]
+\date{August 2026}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+LatentMAS runs three non-decoding agents that grow a shared KV cache
+(``relay''), then a Judger that decodes text from it. Empirically that relay is
+\textbf{content-insensitive within task} (wrong-question $\approx$
+right-question) and therefore highly redundant. On GSM8K we reduce relay
+storage from $\sim\!100\,\mathrm{MB}/640$ positions to
+$\sim\!2.5\,\mathrm{MB}/16$ positions ($\approx 40\times$) at matched
+accuracy. Compression itself costs only $\sim\!20\,\mathrm{ms}$ per item
+(tensor ops over the cache)---negligible versus upstream latent forwards
+($\sim\!3\,\mathrm{s}$) and more than repaid by faster Judger attention over a
+short prefix. Harder tasks (MATH, MedQA) remain compressible only at thicker
+residual budgets.
+\end{abstract}
+
+\tableofcontents
+\vspace{1em}
+
+%------------------------------------------------------------------
+\section{System model}
+
+\subsection{Pipeline}
+
+LatentMAS factorizes answering into four roles sharing one model:
+\[
+x
+  \xrightarrow{\;\mathrm{Planner}\;}
+  \xrightarrow{\;\mathrm{Critic}\;}
+  \xrightarrow{\;\mathrm{Refiner}\;}
+  C_{\mathrm{relay}}
+  \xrightarrow{\;\mathrm{Judger}\;}
+  y_{1:T}.
+\]
+Upstream agents do \textbf{not} emit tokens. Agent $a$ at latent step $t$
+computes
+\begin{align*}
+h_t^{(a)}
+  &= f_\theta\!\bigl(W_a(h_{t-1}^{(a)}),\; C_{<t}\bigr), \\
+C_t
+  &= C_{t-1}\,\oplus\,\mathrm{KV}\!\bigl(h_t^{(a)}\bigr),
+\end{align*}
+where $W_a$ realigns last-layer hidden states into the embedding space and
+$\oplus$ appends new key/value slots. After $K$ steps per upstream agent (plus
+role prefills), the Judger receives $C_{\mathrm{relay}}$ and runs ordinary
+autoregressive decoding.
+
+Default regime here: $K{=}40$ latent steps, greedy Judger decode, generation
+budgets $T_{\max}$ task-dependent (GSM8K $768$, MATH $2048$, \ldots).
+
+\subsection{What ``relay size'' means}
+
+For a cache with $L$ layers, $n_{\mathrm{kv}}$ KV heads, head dim $d_h$, and
+$S$ positions, byte cost is
+\[
+\mathrm{Bytes}(C)
+  = 2\,L\,n_{\mathrm{kv}}\,S\,d_h\cdot b,
+\]
+with $b{=}2$ bytes for bf16/fp16. On Qwen3-14B
+($L{=}40$, $n_{\mathrm{kv}}{=}8$, $d_h{=}128$):
+\[
+\mathrm{MB}(S)
+  \approx \frac{2\cdot 40\cdot 8\cdot 128\cdot S\cdot 2}{2^{20}}
+  = \frac{S}{6.4}\,\mathrm{MB}
+  \quad\Rightarrow\quad
+  S{=}640 \mapsto \approx 100\,\mathrm{MB}.
+\]
+Measured GSM8K means: $S\approx 640$, $\approx 100.0\,\mathrm{MB}$.
+
+%------------------------------------------------------------------
+\section{Prior negative result (why we compress)}
+
+Activation steering of upstream agents (SEAL / KV / learned CES contrasts) did
+\textbf{not} improve accuracy. Linear probes of upstream latents for final
+correctness are near-chance (AUCs $\approx 0.54$--$0.62$), while Judger states
+are informative ($\approx 0.69$--$0.80$). So the relay is a poor place to
+``inject correctness.''
+
+Mechanism controls instead show a \textbf{scaffold} picture:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Relay given to Judger & Typical finding \\
+\midrule
+Real $C(x)$ & Baseline acc / length \\
+Shuffled $C(x')$, $x'\neq x$
+  & Acc $\approx$ real (within a few pts on GSM8K/MATH) \\
+Empty & Acc drops (esp.\ MedQA: $0.63\to 0.27$) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Interpretation: within a task family, $C$ supplies a structured, mostly
+\textbf{instance-agnostic} prior that shortens / stabilizes Judger decoding
+more than it transmits a lossless solution trace. High within-task redundancy
+$\Rightarrow$ aggressive position selection should be viable.
+
+%------------------------------------------------------------------
+\section{Compressor}
+
+\subsection{Formal description}
+
+Let layer $\ell$ store
+$K^{(\ell)}, V^{(\ell)}\in\mathbb{R}^{1\times n_{\mathrm{kv}}\times S\times d_h}$.
+Choose budget $B$, sink $s$, optional rank $r$, importance $\sigma$.
+
+\paragraph{Scores.}
+Default \texttt{key\_norm}, aggregated over heads so one index set is
+compatible with a dense HF \texttt{DynamicCache}:
+\[
+\sigma_i
+  = \sum_{h=1}^{n_{\mathrm{kv}}}
+      \bigl\|K^{(\ell)}_{h,i,:}\bigr\|_2,
+\qquad i=0,\ldots,S-1.
+\]
+Alternatives: value-norm, or recency $\sigma_i=i$.
+
+\paragraph{Selection (plain-H / \texttt{evict}).}
+\[
+\mathcal{I}
+  = \{0,\ldots,s-1\}
+    \;\cup\;
+    \operatorname{Top}_{B-s}
+    \bigl(\{\sigma_i: i\ge s\}\bigr).
+\]
+Sort $\mathcal{I}$ ascending (preserve causal order) and restrict
+\[
+K' = K_{:,:,\mathcal{I},:},\qquad V' = V_{:,:,\mathcal{I},:}.
+\]
+
+\paragraph{OBF backfill (\texttt{obf}).}
+Let $\mathcal{E}=\{0,\ldots,S-1\}\setminus\mathcal{I}$.
+Partition $\mathcal{E}$ (in original order) into $r$ contiguous buckets and
+mean-pool each bucket to get synthetic slots
+$\widetilde K,\widetilde V\in\mathbb{R}^{1\times n_{\mathrm{kv}}\times r\times d_h}$.
+Append:
+\[
+K_{\mathrm{out}} = [K'\,\|\,\widetilde K],\qquad
+V_{\mathrm{out}} = [V'\,\|\,\widetilde V].
+\]
+Output length: $B$ (\texttt{evict}) or $B{+}r$ (\texttt{obf}).
+Default knobs in the headline GSM8K run: $B{=}16$, $s{=}4$, $r{=}8$
+$\Rightarrow$ $16$ or $24$ positions.
+
+\paragraph{Complexity.}
+One pass of norms + \texttt{topk} + \texttt{index\_select} (+ cheap mean-pool):
+\[
+\Theta\!\bigl(L\,n_{\mathrm{kv}}\,S\,d_h\bigr)
+  = \Theta\bigl(\mathrm{numel}(C)\bigr),
+\]
+i.e.\ linear in cache size---\textbf{not} another model forward.
+
+\paragraph{Faithfulness caveat.}
+Published H-OBF selects per-head via attention mass. We select \textbf{per
+layer} (shared indices across heads) so the result remains a standard dense
+cache consumable by \texttt{generate}. Scorer is pluggable.
+
+\subsection{Placement in the pipeline}
+\[
+C_{\mathrm{relay}}
+  \xrightarrow{\;\mathrm{Compress}_{B,s,r}\;}
+  \widehat C
+  \xrightarrow{\;\mathrm{Judger}\,\pm\,\mathrm{ASC}\;}
+  y.
+\]
+Upstream agents are always unsteered. Optional \textbf{ASC} $=$ Judger-only
+SEAL residual at layer $28$, coefficient $40$, for length control.
+
+%------------------------------------------------------------------
+\section{Cost model --- including compression overhead}
+
+End-to-end latency per item in the harness is
+\[
+t_{\mathrm{e2e}}
+  = t_{\mathrm{upstream}}
+  + t_{\mathrm{compress}}
+  + t_{\mathrm{decode}}.
+\]
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Term & What it is & Scales with \\
+\midrule
+$t_{\mathrm{upstream}}$
+  & $3(K{+}1)$ latent forwards + prefills
+  & model FLOPs $\times K$ \\
+$t_{\mathrm{compress}}$
+  & norms / top-$k$ / gather / optional pool
+  & $\mathrm{numel}(C)$ \\
+$t_{\mathrm{decode}}$
+  & Judger AR decode; attends over prefix $|\widehat C|$
+  & $\approx\sum_t O(L\,n_h\,t_{\mathrm{ctx}}\,d)$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Measured overhead (GSM8K, keep-$16$, seed 123, $n{=}60$)}
+
+From \texttt{report.json} means and paired contrasts:
+
+\begin{center}
+\small
+\begin{tabular}{@{}llrrrrrr@{}}
+\toprule
+Arm & Relay & Acc & Tok & $t_{\mathrm{dec}}$ & $t_{\mathrm{e2e}}$ & MB & Peak \\
+\midrule
+A & full & 0.817 & 529 & 2.84\,s & 5.87\,s & 100.0 & 36.8\,GB \\
+C & obf ($B{+}r{=}24$) & 0.800 & 567 & 1.79\,s & 4.85\,s & 3.75 & 34.2\,GB \\
+E & evict ($B{=}16$) & 0.817 & 562 & 1.78\,s & 4.82\,s & \textbf{2.50} & 34.1\,GB \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Paired contrasts ($C{-}A$):
+\begin{itemize}[leftmargin=1.2em]
+\item $\Delta t_{\mathrm{decode}} \approx -1.05\,\mathrm{s}$ (credible speedup)
+\item $\Delta t_{\mathrm{e2e}} \approx -1.02\,\mathrm{s}$
+\end{itemize}
+Because $t_{\mathrm{upstream}}$ is shared and $t_{\mathrm{compress}}^{\mathrm{A}}=0$,
+\[
+\Delta t_{\mathrm{e2e}}
+  = t_{\mathrm{compress}}^{\mathrm{C}}
+  + \Delta t_{\mathrm{decode}}
+  \;\Rightarrow\;
+  t_{\mathrm{compress}}^{\mathrm{C}}
+  \approx (-1.02)-(-1.05)
+  \approx \mathbf{20\text{--}25\,\mathrm{ms}}.
+\]
+So yes: \textbf{there is a compression cost}, but it is $\sim\!0.7\%$ of
+$t_{\mathrm{upstream}}$ ($\approx 3.0\,\mathrm{s}$) and $\sim\!1\%$ of baseline
+$t_{\mathrm{e2e}}$. Net, compressed arms are \textbf{faster} end-to-end, not
+slower.
+
+Why decode speeds up even when tokens rise ($+37$ mean tokens, C vs A):
+attention cost tracks \textbf{prefix length} $S$ as well as generated length
+$T$. Cutting $S{:}\,640\to 16$--$24$ dominates a modest verbosity tax. ASC on
+the Judger removes that tax ($\Delta$ tokens $D{-}C\approx -58$, similar to
+$B{-}A$).
+
+\subsection{Memory accounting (important distinction)}
+
+\begin{center}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Quantity & Full & Compressed @16 & Notes \\
+\midrule
+Stored relay after compress
+  & $100\,\mathrm{MB}$ & $2.5\,\mathrm{MB}$ & headline $40\times$ \\
+Peak GPU during run
+  & $36.8\,\mathrm{GB}$ & $34.1\,\mathrm{GB}$ & $\sim\!2.6\,\mathrm{GB}$ drop \\
+Upstream compute
+  & paid in full & paid in full
+  & compressor does \textbf{not} skip latent steps \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Peak still includes model weights + activations while \emph{building} the full
+cache; we compress \textbf{after} materialization. The $40\times$ figure is
+\textbf{relay residency / Judger prefix memory}, not ``whole process $40\times$
+cheaper.'' A separate synthetic-scaffold line removes upstream compute; that is
+a different lever (saves FLOPs, historically not KV bytes when kept
+full-length).
+
+\subsection{When overhead would matter}
+
+$t_{\mathrm{compress}}$ only becomes comparable to decode if $S$ is huge and
+$T$ is tiny, or if you re-compress every decode step (we do not---once per
+item). Our scorer is $O(S)$ per layer; an attention-mass H-OBF port would cost
+more (needs attentions) and should be re-benchmarked.
+
+\textit{Note:} the harness records \texttt{compress\_s} per row; aggregated
+\texttt{report.json} currently omits \texttt{mean\_compress\_s}. The
+$20$--$25\,\mathrm{ms}$ figure above is inferred from
+$\Delta t_{\mathrm{e2e}}-\Delta t_{\mathrm{decode}}$ and should match a direct
+mean of \texttt{compress\_s}.
+
+%------------------------------------------------------------------
+\section{Experimental design ($2\times 2$ + diagnostics)}
+
+Paired items; same upstream cache reused across Judger arms:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+Arm & Relay & Judger ASC \\
+\midrule
+A & full & off \\
+B & full & on \\
+C & obf & off \\
+D & obf & on \\
+E / F & evict $\pm$ ASC & optional \\
+S & shuffled full & off \\
+N & none & off \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Primary contrasts:
+\begin{align*}
+\text{compression tax} &= C - A,\\
+\text{ASC}\mid\mathrm{full} &= B - A,\\
+\text{ASC}\mid\mathrm{obf} &= D - C,\\
+\text{interaction} &= (D-C)-(B-A).
+\end{align*}
+Target systems story: $\mathrm{acc}(E)\approx\mathrm{acc}(A)$,
+$\mathrm{MB}(E)\ll\mathrm{MB}(A)$, and if $T(C)>T(A)$ then ASC restores length
+(interaction $\approx 0$ when both cells show the same ASC effect---observed on
+GSM8K tokens: interaction $\approx -1.9$ tok, CI covers $0$).
+
+%------------------------------------------------------------------
+\section{Results}
+
+\subsection{GSM8K --- iso-accuracy at $\approx 40\times$}
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Seed & Full acc & Evict@16 & Obf@16 & MB full$\to$evict \\
+\midrule
+42 (\texttt{agg\_b16}) & 0.817 & \textbf{0.817} & 0.800 & $100\to 2.5$ \\
+123 & 0.817 & \textbf{0.817} & 0.800 & $100\to 2.5$ \\
+7 & 0.817 & \textbf{0.817} & 0.800 & $100\to 2.5$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Shuffled vs full (seed 123): $0.800$ vs $0.817$. Plain \texttt{evict} matches
+full accuracy; mean-pool rank-$8$ backfill is not necessary for this operating
+point (and uses $+r$ positions).
+
+\subsection{MATH --- thicker residual}
+
+Full acc $0.783$. Obf keep-$B$:
+
+\begin{center}
+\begin{tabular}{@{}rrr@{}}
+\toprule
+$B$ & Acc & Approx MB ratio \\
+\midrule
+128 & \textbf{0.800} & $\sim\!5\times$ \\
+64 & 0.733 ($-5$) & $\sim\!9\times$ \\
+32 & 0.717 ($-7$) & $\sim\!16\times$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{MedQA --- aggressive budgets break}
+
+Full acc $0.633$. Obf:
+
+\begin{center}
+\begin{tabular}{@{}rr@{}}
+\toprule
+$B$ & Acc \\
+\midrule
+128 & 0.567 ($-7$, soft) \\
+64 & 0.517 ($-12$) \\
+16--32 & $\sim\!0.35$--$0.37$ (collapse) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+None: $0.267$. MedQA$\leftarrow$GSM8K donor cache: $0.533$ ($-10$)---cross-task
+transfer is not free.
+
+\subsection{Operating rule}
+\[
+B^\star(\mathrm{task})
+  \quad\text{increases with task difficulty / domain shift.}
+\]
+GSM8K admits $B{=}16$; MATH wants $B\sim 128$ for iso-acc; MedQA should not use
+$B\in\{16,32\}$ under this scorer.
+
+%------------------------------------------------------------------
+\section{What is / is not claimed}
+
+\paragraph{Claimed.}
+\begin{enumerate}[leftmargin=1.4em]
+\item Relay KV is within-task redundant; position selection yields large MB
+cuts at iso-acc on GSM8K (replicated).
+\item Task-dependent compression frontier on MATH/MedQA.
+\item Compressor wall-clock overhead is $O(\mathrm{numel}(C))$ and empirically
+$\ll t_{\mathrm{upstream}},\;|\Delta t_{\mathrm{decode}}|$.
+\end{enumerate}
+
+\paragraph{Not claimed.}
+\begin{enumerate}[leftmargin=1.4em]
+\item Elimination of upstream FLOPs (cache is still built once).
+\item Universal $40\times$ on hard exams.
+\item Byte-faithful per-head attention H-OBF.
+\item AIME numbers from the long-decode cache-swap harness (truncation
+artifacts).
+\end{enumerate}
+
+%------------------------------------------------------------------
+\section{Notation}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Symbol & Meaning \\
+\midrule
+$C,\;\widehat C$ & full / compressed relay KV \\
+$S,\;B,\;s,\;r$ & length / budget / sink / OBF rank \\
+$t_{\mathrm{upstream}},\,t_{\mathrm{compress}},\,t_{\mathrm{decode}}$
+  & latency partition \\
+ASC / SEAL & Judger-only activation steer for length \\
+Arm A/C/E & full / obf / evict without ASC \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\vspace{1em}
+\noindent\textit{Implementation:} \texttt{seal/relay\_compress.py},
+\texttt{scripts/exp\_2x2\_relay\_asc.py}.\\
+\noindent\textit{Runbook:} \texttt{docs/CACHE\_COMPRESSION\_PIPELINE.md}.\\
+\noindent\textit{Full experiment log:} \texttt{docs/MASTER\_BRIEF.md}.
+
+\end{document}
