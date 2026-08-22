@@ -21,20 +21,18 @@ Greedy decode $\cdot$ no ASC (memory $\times$ accuracy only)
 \end{center}
 \end{frame}
 
-%------------------------------------------------------------------
 \begin{frame}{What we are claiming}
 \begin{itemize}
   \item Prior mechanism: relay is largely \textbf{content-insensitive}
         $\Rightarrow$ redundant scaffold.
   \item Systems question: for each task, how small can $B$ get before accuracy drops?
-  \item This deck uses the \textbf{tightened} ladder (not the old $n{=}60$ identical-seed run).
+  \item This deck uses the \textbf{tightened} ladder ($n{=}100$, two item-subsets, CIs).
 \end{itemize}
 \begin{block}{Paper-shaped claim}
 A task-conditional memory--accuracy Pareto --- not ``$40\times$ free everywhere.''
 \end{block}
 \end{frame}
 
-%------------------------------------------------------------------
 \begin{frame}{Headline curves (seed-mean)}
 \begin{center}
 \includegraphics[width=0.92\textwidth]{pareto_acc_vs_B.png}
@@ -47,7 +45,6 @@ A task-conditional memory--accuracy Pareto --- not ``$40\times$ free everywhere.
 \end{itemize}
 \end{frame}
 
-%------------------------------------------------------------------
 \begin{frame}{Numbers (accuracy, seed-mean $n{=}100$)}
 \begin{center}\small
 \begin{tabular}{lrrrrrr}
@@ -63,7 +60,7 @@ MedQA & 0.630 & 0.330 & 0.350 & 0.410 & 0.570 & 0.240 \\
 \vspace{0.5em}
 \begin{columns}[T,onlytextwidth]
 \begin{column}{0.48\textwidth}
-\begin{block}{\small Operating points}
+\begin{block}{\small Recommended $B$ per task}
 \begin{itemize}\scriptsize
   \item GSM8K: $B{=}64$ ($\sim$10$\times$) for iso-acc
   \item MATH: $B{=}64$--$128$
@@ -80,34 +77,18 @@ Compression trims redundancy; it does not delete the scaffold.
 \end{columns}
 \end{frame}
 
-%------------------------------------------------------------------
-\begin{frame}{Hardening: seeds actually differ now}
-\begin{itemize}
-  \item Old $n{=}60$ ``two seeds'' matched cell-for-cell (greedy + same first-$n$).
-  \item Tightened: \texttt{--sample\_items} draws different $n{=}100$ subsets per seed.
-  \item GSM8K $B{=}16$: $0.79$ (s42) vs $0.68$ (s123); both hit $0.87$ at $B{=}64$.
-  \item MedQA pool size $=100$ $\Rightarrow$ seeds identical (full set).
-\end{itemize}
-\begin{alertblock}{Claim strength}
-Operating points hold across two real item-subsets + within-run bootstrap CIs.
-\end{alertblock}
-\end{frame}
-
-%------------------------------------------------------------------
 \begin{frame}{Compression tax ($\Delta$ acc vs full)}
 \begin{center}
 \includegraphics[width=0.88\textwidth]{pareto_delta_acc.png}
 \end{center}
 \end{frame}
 
-%------------------------------------------------------------------
 \begin{frame}{Accuracy vs relay memory}
 \begin{center}
 \includegraphics[width=0.90\textwidth]{pareto_acc_vs_mb.png}
 \end{center}
 \end{frame}
 
-%------------------------------------------------------------------
 \begin{frame}{Verbosity tax (Judger tokens)}
 \begin{center}
 \includegraphics[width=0.88\textwidth]{pareto_token_tax.png}
@@ -115,21 +96,17 @@ Operating points hold across two real item-subsets + within-run bootstrap CIs.
 \vspace{-0.3em}
 \begin{itemize}\small
   \item Aggressive shrink lengthens Judger CoT (esp.\ MATH).
-  \item ASC remains the orthogonal length knob at chosen operating points.
+  \item Token tax fades as $B$ grows.
 \end{itemize}
 \end{frame}
 
-%------------------------------------------------------------------
 \begin{frame}{Bottom line}
 \begin{enumerate}
   \item Mechanism: relay is a scaffold, not an instance-specific channel.
   \item Systems: compress hard on easy tasks; thicker residual on hard ones.
   \item Tightened evidence ($n{=}100$, two subsets, CIs): story unchanged, sharper knees.
+  \item GSM8K iso @ $B{\approx}64$ ($\sim\!10\times$); MATH @ $64$--$128$; MedQA still taxed at $128$.
 \end{enumerate}
-\vspace{0.8em}
-\begin{center}
-\large\textbf{The scaffold compresses --- but not uniformly.}
-\end{center}
 \end{frame}
 
 \end{document}
