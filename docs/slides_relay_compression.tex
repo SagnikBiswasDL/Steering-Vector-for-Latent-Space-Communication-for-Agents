@@ -1,0 +1,132 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\graphicspath{{figs/}}
+
+\title[Compress the Relay, Steer the Reader]{Compress the Relay, Steer the Reader}
+\subtitle{H-OBF relay compression $\times$ Judger-only concision steering (ASC) in LatentMAS}
+\author{Sagnik Biswas}
+\date{July 2026}
+
+\begin{document}
+
+\begin{frame}
+    \titlepage
+    \vspace{-0.8cm}
+    \begin{center}\small Qwen3-14B $\cdot$ GSM8K $\cdot$ verified LatentMAS fork\end{center}
+\end{frame}
+
+% ---------------------------------------------------------------
+\begin{frame}{The setup and the claim}
+    \begin{center}
+        [Question] $\rightarrow$ Planner $\rightarrow$ Critic $\rightarrow$ Refiner $\rightarrow$ \textbf{Judger} $\rightarrow$ [Answer]
+    \end{center}
+    \vspace{0.2cm}
+    \begin{itemize}
+        \item Planner/Critic/Refiner run 40 latent steps, emit \textbf{no text}; they grow a shared \textbf{KV cache} ($\sim$640 positions, $\sim$100 MB) --- the entire inter-agent ``message.''
+        \item Only the \textbf{Judger} decodes text.
+    \end{itemize}
+    \vspace{0.2cm}
+    \begin{block}{Systems claim under test}
+        Can a \textbf{compressed relay} cut inter-agent KV memory while \textbf{Judger-only concision steering} removes any downstream verbosity tax --- \emph{at iso-accuracy}?
+    \end{block}
+\end{frame}
+
+% ---------------------------------------------------------------
+\begin{frame}{Two orthogonal levers}
+    \begin{columns}
+        \begin{column}{0.5\textwidth}
+            \textbf{H-OBF (memory).} Compress each agent's relay KV: keep \textbf{4 sink} + \textbf{top-$k$} positions by importance (per layer); optional rank-8 low-rank ``backfill'' of the evicted mass.
+        \end{column}
+        \begin{column}{0.5\textwidth}
+            \textbf{ASC (verbosity).} A verbose$\rightarrow$concise SEAL residual added at the \textbf{Judger decoding only} (layer 28, coef 40). Upstream agents left \textbf{unsteered}.
+        \end{column}
+    \end{columns}
+    \vspace{0.3cm}
+    \begin{block}{The 2$\times$2 (paired, same items, greedy)}
+        \centering
+        \begin{tabular}{lcc}
+            \toprule
+             & \textbf{No ASC} & \textbf{ASC} \\
+            \midrule
+            \textbf{Full relay}  & A & B \\
+            \textbf{H-OBF relay} & C & D \\
+            \bottomrule
+        \end{tabular}
+        \\[0.2cm]
+        \footnotesize (+ plain-H eviction arms E/F as a backfill diagnostic)
+    \end{block}
+\end{frame}
+
+% ---------------------------------------------------------------
+\begin{frame}{Result 1 --- moderate compression (budget 32, $n{=}100$)}
+    \begin{center}
+        \includegraphics[width=\linewidth]{relay_2x2_b32.png}
+    \end{center}
+    \vspace{-0.2cm}
+    \begin{itemize}\small
+        \item \textbf{Compression is free:} 16$\times$ less relay KV (100$\to$6.25 MB, 638$\to$40 pos), accuracy unchanged ($C{-}A = -0.01$, n.s.).
+        \item \textbf{ASC and compression are orthogonal:} ASC cuts tokens the same on the compressed relay as the full one ($D{-}C = -37 \approx B{-}A = -36$); all interactions $\approx 0$.
+        \item \textbf{Best corner D} (compressed+ASC): $+0.06$ acc vs full, $-27$ tokens, 16$\times$ less KV.
+    \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------
+\begin{frame}{Result 2 --- aggressive compression (budget 16, $n{=}60$)}
+    \begin{center}
+        \includegraphics[width=\linewidth]{relay_2x2_b16.png}
+    \end{center}
+    \vspace{-0.2cm}
+    \begin{itemize}\small
+        \item \textbf{The verbosity tax now appears \& is significant:} $C{-}A = +37$ tokens $[+11,+67]$ ($\sim{+}7\%$) --- matching the compression paper's $\sim$10\% claim.
+        \item \textbf{ASC removes it:} $D{-}C = -44$ tokens $[-71,-16]$; D accuracy $= 0.867 =$ full+ASC.
+        \item \textbf{Still near-free accuracy at 27$\times$:} $C{-}A$ acc $= -0.017$ (n.s.).
+    \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------
+\begin{frame}{Diagnostic --- does the OBF backfill earn its keep?}
+    \centering
+    \begin{tabular}{llccc}
+        \toprule
+        arm & relay & acc & tokens & relay KV \\
+        \midrule
+        A & full            & 0.817 & 529 & 100.0 MB (640 pos) \\
+        C & obf (rank-8 bf)  & 0.800 & 567 & 3.75 MB (24 pos) \\
+        E & \textbf{plain-H} & \textbf{0.817} & 562 & \textbf{2.50 MB (16 pos)} \\
+        \bottomrule
+    \end{tabular}
+    \vspace{0.4cm}
+    \begin{itemize}
+        \item \textbf{Plain-H eviction beats OBF backfill:} E matches \emph{full} accuracy (0.817) at \textbf{40$\times$ less KV}, using \emph{less} memory than C.
+        \item Our mean-pool rank-8 backfill adds off-manifold noise $\Rightarrow$ drop it (or replace with true low-rank factors).
+    \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------
+\begin{frame}{Takeaways}
+    \begin{block}{Headline}
+        \textbf{Compress the relay, steer the reader.} The inter-agent KV compresses \textbf{27--40$\times$ at iso-accuracy}; aggressive compression induces a small Judger verbosity tax that \textbf{Judger-only ASC fully absorbs}. Memory and verbosity are \textbf{decoupled}.
+    \end{block}
+    \begin{itemize}
+        \item \textbf{Memory} comes from compression; \textbf{tokens/latency/accuracy} come from ASC; they \textbf{stack}.
+        \item \textbf{Plain headwise eviction} to 16 positions is the simple winner (40$\times$, no steering, full accuracy).
+        \item Best combined corner: H-OBF + ASC $=$ full+ASC accuracy at 27$\times$ less KV.
+    \end{itemize}
+\end{frame}
+
+% ---------------------------------------------------------------
+\begin{frame}{Method notes, limits, next}
+    \begin{itemize}
+        \item \textbf{Faithfulness:} dense HF cache $\Rightarrow$ per-\emph{layer} (not per-head-attention) selection; scorer is key-norm; pluggable.
+        \item \textbf{Efficiency:} batched Judger decode $\Rightarrow$ GPU util $0 \to 60$--94\%, $\sim$10$\times$ faster (per-item timing CIs degenerate under batching --- report throughput).
+        \item \textbf{Limits:} single seed, GSM8K only, one relay-budget grid.
+    \end{itemize}
+    \vspace{0.2cm}
+    \begin{block}{Next}
+        budget-8 (find the accuracy cliff) $\cdot$ true low-rank backfill (beat plain-H?) $\cdot$ MedQA + second seed.
+    \end{block}
+\end{frame}
+
+\end{document}

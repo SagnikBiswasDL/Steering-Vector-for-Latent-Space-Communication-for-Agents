@@ -1,0 +1,365 @@
+{
+  "config": {
+    "model_name": "Qwen/Qwen3-14B",
+    "task": "gsm8k",
+    "split": "test",
+    "k": 40,
+    "n": 60,
+    "judger_budget": 768,
+    "relay_budget": 16,
+    "sink": 4,
+    "rank": 8,
+    "importance": "key_norm",
+    "with_evict": true,
+    "with_shuffled": true,
+    "with_crosstask": false,
+    "with_none": false,
+    "donor_task": null,
+    "asc_vector": "artifacts/seal_vectors/qwen3-14b/gsm8k_layer28_n200.pt",
+    "asc_coef": 40.0,
+    "asc_layer": -1,
+    "asc_apply_to": "last",
+    "smoke": false,
+    "batch_size": 20,
+    "seed": 123,
+    "device": "cuda",
+    "out_dir": "artifacts/exp2x2/compress_confirm/gsm8k_b16_s123"
+  },
+  "n": 60,
+  "arms": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "S"
+  ],
+  "run_asc": true,
+  "compressors": {
+    "obf": "obf budget=16 sink=4 importance=key_norm rank=8",
+    "evict": "evict budget=16 sink=4 importance=key_norm"
+  },
+  "per_arm": {
+    "A": {
+      "relay": "full",
+      "asc": false,
+      "n": 60,
+      "acc": 0.8166666666666667,
+      "mean_tokens": 529.1666666666666,
+      "median_tokens": 491.0,
+      "mean_decode_s": 2.8395240809147557,
+      "mean_e2e_s": 5.8702917230005065,
+      "mean_tok_per_s": 186.51703189972665,
+      "mean_relay_mb": 100.0234375,
+      "mean_relay_positions": 640.15,
+      "eos_rate": 0.7833333333333333,
+      "mean_peak_mem_mb": 36796.492513020836
+    },
+    "B": {
+      "relay": "full",
+      "asc": true,
+      "n": 60,
+      "acc": 0.8666666666666667,
+      "mean_tokens": 473.1,
+      "median_tokens": 434.5,
+      "mean_decode_s": 2.8492010115335393,
+      "mean_e2e_s": 5.879968653619289,
+      "mean_tok_per_s": 166.1735827174741,
+      "mean_relay_mb": 100.0234375,
+      "mean_relay_positions": 640.15,
+      "eos_rate": 0.9,
+      "mean_peak_mem_mb": 36796.313313802086
+    },
+    "C": {
+      "relay": "obf",
+      "asc": false,
+      "n": 60,
+      "acc": 0.8,
+      "mean_tokens": 566.5333333333333,
+      "median_tokens": 577.5,
+      "mean_decode_s": 1.7936595353608336,
+      "mean_e2e_s": 4.845876807098586,
+      "mean_tok_per_s": 315.74886602116396,
+      "mean_relay_mb": 3.75,
+      "mean_relay_positions": 24.0,
+      "eos_rate": 0.75,
+      "mean_peak_mem_mb": 34166.321451822914
+    },
+    "D": {
+      "relay": "obf",
+      "asc": true,
+      "n": 60,
+      "acc": 0.8166666666666667,
+      "mean_tokens": 508.6166666666667,
+      "median_tokens": 500.5,
+      "mean_decode_s": 1.8008255215982596,
+      "mean_e2e_s": 4.853042793336014,
+      "mean_tok_per_s": 282.48754266394894,
+      "mean_relay_mb": 3.75,
+      "mean_relay_positions": 24.0,
+      "eos_rate": 0.8333333333333334,
+      "mean_peak_mem_mb": 34166.321451822914
+    },
+    "E": {
+      "relay": "evict",
+      "asc": false,
+      "n": 60,
+      "acc": 0.8166666666666667,
+      "mean_tokens": 561.6,
+      "median_tokens": 567.0,
+      "mean_decode_s": 1.7790001465007663,
+      "mean_e2e_s": 4.816307935429117,
+      "mean_tok_per_s": 315.58729784337277,
+      "mean_relay_mb": 2.5,
+      "mean_relay_positions": 16.0,
+      "eos_rate": 0.7833333333333333,
+      "mean_peak_mem_mb": 34138.28271484375
+    },
+    "F": {
+      "relay": "evict",
+      "asc": true,
+      "n": 60,
+      "acc": 0.8166666666666667,
+      "mean_tokens": 527.6,
+      "median_tokens": 528.5,
+      "mean_decode_s": 1.793943577632308,
+      "mean_e2e_s": 4.8312513665606565,
+      "mean_tok_per_s": 294.2320229582204,
+      "mean_relay_mb": 2.5,
+      "mean_relay_positions": 16.0,
+      "eos_rate": 0.8333333333333334,
+      "mean_peak_mem_mb": 34138.28271484375
+    },
+    "S": {
+      "relay": "shuffled",
+      "asc": false,
+      "n": 60,
+      "acc": 0.8,
+      "mean_tokens": 530.15,
+      "median_tokens": 537.0,
+      "mean_decode_s": 2.8367102184022475,
+      "mean_e2e_s": 5.867477860487997,
+      "mean_tok_per_s": 187.1704238268199,
+      "mean_relay_mb": 100.0234375,
+      "mean_relay_positions": 640.15,
+      "eos_rate": 0.8166666666666667,
+      "mean_peak_mem_mb": 36796.492513020836
+    }
+  },
+  "interaction": {
+    "tokens": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": 37.36666666666667,
+        "ci_lo": 11.597916666666666,
+        "ci_hi": 64.4616666666666,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": -56.06666666666667,
+        "ci_lo": -83.90416666666667,
+        "ci_hi": -29.94708333333335,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": -57.916666666666664,
+        "ci_lo": -85.49,
+        "ci_hi": -33.81666666666667,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": -1.85,
+        "ci_lo": -33.35041666666667,
+        "ci_hi": 29.068749999999987,
+        "n": 60
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -20.55,
+        "ci_lo": -49.68416666666666,
+        "ci_hi": 7.1904166666666285,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "shuffled_vs_full (S-A)": {
+        "mean_diff": 0.9833333333333333,
+        "ci_lo": -23.305416666666666,
+        "ci_hi": 25.068333333333324,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      }
+    },
+    "decode_s": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": -1.0458645455539228,
+        "ci_lo": -1.06861130326055,
+        "ci_hi": -1.0215089188220445,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": 0.00967693061878272,
+        "ci_lo": 0.008945613303609675,
+        "ci_hi": 0.01037000044365404,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": 0.0071659862374267025,
+        "ci_lo": 0.0063900733742243135,
+        "ci_hi": 0.007915714966754217,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": -0.0025109443813560173,
+        "ci_lo": -0.0037889112997798106,
+        "ci_hi": -0.001123490678146244,
+        "n": 60
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -1.0386985593164961,
+        "ci_lo": -1.0620302305401614,
+        "ci_hi": -1.0143957645496509,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "shuffled_vs_full (S-A)": {
+        "mean_diff": -0.0028138625125091465,
+        "ci_lo": -0.0035745049919934176,
+        "ci_hi": -0.0020532200330248755,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      }
+    },
+    "e2e_s": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": -1.024414915901919,
+        "ci_lo": -1.046863796999367,
+        "ci_hi": -0.9999759031909048,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": 0.009676930618783016,
+        "ci_lo": 0.008945613303610008,
+        "ci_hi": 0.010370000443654307,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": 0.007165986237426185,
+        "ci_lo": 0.006390073374223776,
+        "ci_hi": 0.007915714966753725,
+        "n": 60,
+        "credible_positive": true,
+        "credible_negative": false
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": -0.0025109443813568313,
+        "ci_lo": -0.0037889112997806064,
+        "ci_hi": -0.0011234906781471062,
+        "n": 60
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -1.0172489296644927,
+        "ci_lo": -1.0403035297900594,
+        "ci_hi": -0.9924310862156562,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "shuffled_vs_full (S-A)": {
+        "mean_diff": -0.0028138625125088503,
+        "ci_lo": -0.0035745049919930624,
+        "ci_hi": -0.0020532200330246387,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": true
+      }
+    },
+    "acc": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": -0.016666666666666666,
+        "ci_lo": -0.11666666666666667,
+        "ci_hi": 0.08333333333333333,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": 0.05,
+        "ci_lo": -0.03333333333333333,
+        "ci_hi": 0.13333333333333333,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": 0.016666666666666666,
+        "ci_lo": -0.08333333333333333,
+        "ci_hi": 0.11666666666666667,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": -0.03333333333333333,
+        "ci_lo": -0.16666666666666666,
+        "ci_hi": 0.1,
+        "n": 60
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": 0.0,
+        "ci_lo": -0.06666666666666667,
+        "ci_hi": 0.06666666666666667,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "shuffled_vs_full (S-A)": {
+        "mean_diff": -0.016666666666666666,
+        "ci_lo": -0.1,
+        "ci_hi": 0.06666666666666667,
+        "n": 60,
+        "credible_positive": false,
+        "credible_negative": false
+      }
+    }
+  },
+  "correctness_flips": {
+    "C_vs_A (compression)": {
+      "n": 60,
+      "gained": 4,
+      "lost": 5,
+      "net": -1
+    },
+    "D_vs_C (ASC|obf)": {
+      "n": 60,
+      "gained": 6,
+      "lost": 5,
+      "net": 1
+    },
+    "D_vs_A (combined)": {
+      "n": 60,
+      "gained": 2,
+      "lost": 2,
+      "net": 0
+    }
+  },
+  "elapsed_s": 1125.4773588180542
+}

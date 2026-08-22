@@ -1,0 +1,279 @@
+{
+  "config": {
+    "model_name": "Qwen/Qwen3-14B",
+    "task": "gsm8k",
+    "split": "test",
+    "k": 40,
+    "n": 100,
+    "judger_budget": 768,
+    "relay_budget": 32,
+    "sink": 4,
+    "rank": 8,
+    "importance": "key_norm",
+    "with_evict": false,
+    "asc_vector": "artifacts/seal_vectors/qwen3-14b/gsm8k_layer28.pt",
+    "asc_coef": 40.0,
+    "asc_layer": -1,
+    "asc_apply_to": "last",
+    "smoke": false,
+    "seed": 42,
+    "device": "cuda",
+    "out_dir": "artifacts/exp2x2/paired"
+  },
+  "n": 100,
+  "arms": [
+    "A",
+    "B",
+    "C",
+    "D"
+  ],
+  "run_asc": true,
+  "compressors": {
+    "obf": "obf budget=32 sink=4 importance=key_norm rank=8"
+  },
+  "per_arm": {
+    "A": {
+      "relay": "full",
+      "asc": false,
+      "n": 100,
+      "acc": 0.8,
+      "mean_tokens": 524.1,
+      "median_tokens": 497.5,
+      "mean_decode_s": 12.381698053739965,
+      "mean_e2e_s": 15.37130756843835,
+      "mean_tok_per_s": 42.337231283214514,
+      "mean_relay_mb": 99.6453125,
+      "mean_relay_positions": 637.73,
+      "eos_rate": 0.8,
+      "mean_peak_mem_mb": 28746.223603515624
+    },
+    "B": {
+      "relay": "full",
+      "asc": true,
+      "n": 100,
+      "acc": 0.86,
+      "mean_tokens": 488.56,
+      "median_tokens": 453.0,
+      "mean_decode_s": 11.640470361113548,
+      "mean_e2e_s": 14.630079875811935,
+      "mean_tok_per_s": 41.970679250085226,
+      "mean_relay_mb": 99.6453125,
+      "mean_relay_positions": 637.73,
+      "eos_rate": 0.89,
+      "mean_peak_mem_mb": 28837.34308105469
+    },
+    "C": {
+      "relay": "obf",
+      "asc": false,
+      "n": 100,
+      "acc": 0.79,
+      "mean_tokens": 533.97,
+      "median_tokens": 500.5,
+      "mean_decode_s": 12.627341618388892,
+      "mean_e2e_s": 15.637559528462589,
+      "mean_tok_per_s": 42.25853872360371,
+      "mean_relay_mb": 6.25,
+      "mean_relay_positions": 40.0,
+      "eos_rate": 0.77,
+      "mean_peak_mem_mb": 28750.697280273438
+    },
+    "D": {
+      "relay": "obf",
+      "asc": true,
+      "n": 100,
+      "acc": 0.86,
+      "mean_tokens": 497.47,
+      "median_tokens": 483.0,
+      "mean_decode_s": 11.896324231922627,
+      "mean_e2e_s": 14.906542141996324,
+      "mean_tok_per_s": 41.80556236578611,
+      "mean_relay_mb": 6.25,
+      "mean_relay_positions": 40.0,
+      "eos_rate": 0.87,
+      "mean_peak_mem_mb": 28661.778579101563
+    }
+  },
+  "interaction": {
+    "tokens": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": 9.87,
+        "ci_lo": -14.9205,
+        "ci_hi": 34.23025,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": -35.54,
+        "ci_lo": -56.1165,
+        "ci_hi": -14.777500000000012,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": -36.5,
+        "ci_lo": -60.56075,
+        "ci_hi": -15.633250000000038,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": -0.96,
+        "ci_lo": -29.409999999999997,
+        "ci_hi": 27.791499999999992,
+        "n": 100
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -26.63,
+        "ci_lo": -47.1105,
+        "ci_hi": -6.6,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": true
+      }
+    },
+    "decode_s": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": 0.24564356464892625,
+        "ci_lo": -0.3316203766381368,
+        "ci_hi": 0.818092521614395,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": -0.7412276926264166,
+        "ci_lo": -1.2370644587054849,
+        "ci_hi": -0.24566211002506336,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": -0.7310173864662647,
+        "ci_lo": -1.306685925147496,
+        "ci_hi": -0.23526988337561536,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": 0.010210306160151958,
+        "ci_lo": -0.6722014798298478,
+        "ci_hi": 0.7062552549215031,
+        "n": 100
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -0.48537382181733846,
+        "ci_lo": -0.9690156037863344,
+        "ci_hi": -0.01563371952809407,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": true
+      }
+    },
+    "e2e_s": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": 0.2662519600242376,
+        "ci_lo": -0.3104573871893808,
+        "ci_hi": 0.8386738467821849,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": -0.7412276926264166,
+        "ci_lo": -1.2370644587054849,
+        "ci_hi": -0.24566211002506336,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": -0.7310173864662647,
+        "ci_lo": -1.306685925147496,
+        "ci_hi": -0.23526988337561536,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": true
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": 0.010210306160151958,
+        "ci_lo": -0.6722014798298478,
+        "ci_hi": 0.7062552549215031,
+        "n": 100
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": -0.4647654264420271,
+        "ci_lo": -0.9480925238216297,
+        "ci_hi": 0.005236480606719754,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": false
+      }
+    },
+    "acc": {
+      "compression_tax_noASC (C-A)": {
+        "mean_diff": -0.01,
+        "ci_lo": -0.07,
+        "ci_hi": 0.050249999999998636,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_full (B-A)": {
+        "mean_diff": 0.06,
+        "ci_lo": 0.0,
+        "ci_hi": 0.12,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "ASC_effect_obf (D-C)": {
+        "mean_diff": 0.07,
+        "ci_lo": 0.0,
+        "ci_hi": 0.14,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": false
+      },
+      "interaction ((D-C)-(B-A))": {
+        "mean_diff": 0.01,
+        "ci_lo": -0.07,
+        "ci_hi": 0.09,
+        "n": 100
+      },
+      "combined_vs_full (D-A)": {
+        "mean_diff": 0.06,
+        "ci_lo": 0.0,
+        "ci_hi": 0.13,
+        "n": 100,
+        "credible_positive": false,
+        "credible_negative": false
+      }
+    }
+  },
+  "correctness_flips": {
+    "C_vs_A (compression)": {
+      "n": 100,
+      "gained": 5,
+      "lost": 6,
+      "net": -1
+    },
+    "D_vs_C (ASC|obf)": {
+      "n": 100,
+      "gained": 10,
+      "lost": 3,
+      "net": 7
+    },
+    "D_vs_A (combined)": {
+      "n": 100,
+      "gained": 9,
+      "lost": 3,
+      "net": 6
+    }
+  },
+  "elapsed_s": 5157.160180807114
+}

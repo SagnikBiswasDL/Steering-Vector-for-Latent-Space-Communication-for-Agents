@@ -2,7 +2,47 @@ from typing import Dict, Iterable, Optional
 
 from datasets import load_dataset
 
-from utils import extract_gold, normalize_answer
+from utils import extract_gold, normalize_answer, extract_boxed_answer, normalize_math_answer
+
+
+def load_math(split: str = "test", cache_dir: Optional[str] = None) -> Iterable[Dict]:
+    """MATH (competition math). 'test' -> MATH-500 (standard hard eval subset);
+    'train' -> full MATH train (for steering-vector traces / pairs).
+
+    Dataset ids are picked defensively (HF ids drift); verify on the pod and
+    adjust if a load fails. Answers are the boxed final answer; grading uses the
+    light math normalizer (see utils.normalize_math_answer).
+    """
+    ds = None
+    if split == "test":
+        for did in ("HuggingFaceH4/MATH-500",):
+            try:
+                ds = load_dataset(did, split="test", cache_dir=cache_dir)
+                break
+            except Exception:
+                continue
+    else:
+        for did, cfg in (("nlile/hendrycks-MATH-benchmark", None),
+                         ("lighteval/MATH", "all"),
+                         ("EleutherAI/hendrycks_math", "algebra")):
+            try:
+                ds = (load_dataset(did, cfg, split="train", cache_dir=cache_dir)
+                      if cfg else load_dataset(did, split="train", cache_dir=cache_dir))
+                break
+            except Exception:
+                continue
+    if ds is None:
+        raise RuntimeError("Could not load a MATH dataset; check HF dataset ids in data.load_math")
+    for item in ds:
+        question = (item.get("problem") or item.get("question") or "").strip()
+        solution = item.get("solution", item.get("answer", "")) or ""
+        ans = item.get("answer")
+        if ans is None or str(ans).strip() == "":
+            ans = extract_boxed_answer(solution)
+        gold = normalize_math_answer(str(ans) if ans is not None else None)
+        if not question or not gold:
+            continue
+        yield {"question": question, "solution": solution, "gold": gold, "source": "math"}
 
 
 def load_gsm8k(split: str = "test", cache_dir: Optional[str] = None) -> Iterable[Dict]:
