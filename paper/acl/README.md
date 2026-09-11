@@ -1,10 +1,21 @@
 # ACL paper draft
 
-Interpretability paper: the LatentMAS $K=40$ KV relay is a prefix, not an
-instance-specific message. Naive eviction is the **delete test** (and a KV
-side-effect), not the claimed method.
+Methods paper: **SynthScaffold** replaces sequential LatentMAS's silent
+Planner/Critic/Refiner with one frozen **type-level KV prefix**.
+The recipe depends on the problem type. The Judger still decodes.
+Swap / probes live in the **appendix** (why a shared prefix is legal).
+AIME is **not** a main-table result (long-decode batched harness
+under-scores Real; Gate 1 at $B{=}1$ still matches the original paper).
+
+Do **not** write the paper as a contradiction of Zou et al.: sequential
+LatentMAS still beats a single agent; we skip upstream while matching Real.
 
 ## Build
+
+Overleaf (this is the intended compiler): official **ACL** project,
+**pdfLaTeX**, paste `main.tex`. The bib is embedded in `main.tex` and
+overwrites `custom.bib` on compile. Then **Recompile from scratch**.
+Do not use XeLaTeX/LuaLaTeX. Keep `acl.sty` and `acl_natbib.bst`.
 
 ```bash
 cd paper/acl
@@ -15,22 +26,28 @@ pdflatex -interaction=nonstopmode main
 pdflatex -interaction=nonstopmode main
 ```
 
-`main.tex` already uses the official ACL preamble (`\usepackage[review]{acl}`).
-Style files `acl.sty` and `acl_natbib.bst` are vendored from
-[acl-org/acl-style-files](https://github.com/acl-org/acl-style-files).
-
-For camera-ready, switch to `\usepackage[final]{acl}` and fill in authors.
-
 ## Figures
 
-| File | What |
+| File | Where |
 |---|---|
-| `figs/swap_budget` | Real vs shuffled vs no cache (MedQA) |
-| `figs/acc_evict` | $K=40$ full vs eviction accuracy |
-| `figs/latency_agents` | Per-agent time, GSM8K / GPQA |
-| `figs/memory_batch` | Peak GB vs Judger batch size |
+| `figs/swap_budget` | Appendix: real vs shuffled vs none (motivation) |
 
-## Numbers
+Main numbers are tables. Eviction plots are unused.
 
-ARR suite: Qwen3-14B, temp 0.6 / top-p 0.95, three seeds, reports under
-`artifacts/exp_latency_mem/arr_*`.
+## Locked numbers (Qwen3-14B, greedy, $K{=}10$)
+
+| Setting | Recipe | $n$ | Real | Ours | None |
+|---|---|---|---|---|---|
+| MedQA $T{=}1024$, $B{=}20$ | Gaussian | 40 | **67.5** | **67.5** | 32.5 |
+| GSM8K $T{=}1024$, $B{=}20$ | Mean-Replay | 40 | **90.0** | **90.0** | 80.0 |
+| GSM8K same slice | Gaussian (transfer) | 40 | 90.0 | 82.5 | 80.0 |
+| GSM8K $T{=}1024$, $B{=}20$ | KV-mean (failed) | 150 | 90.7 | **24.7** | 82.0 |
+
+AIME24 (do not put in the main table): original paper sequential 14B
+$66.7$ vs Single $63.3$; our Gate 1 `LatentMASMethod` $B{=}1$ $T{=}8192$
+$K{=}10$ **$66.7$** vs $K{=}0$ $53.3$; synth harness $B{=}8$ dropped Real
+to $33.3$ $=$ None — treat as a broken Real, not a finding.
+
+Original LatentMAS sequential 14B (sampled, full sets): GSM8K $95.2$ vs
+Single $83.7$; MedQA $80.7$ vs $64.7$. Our $T{=}4096$ MedQA Real $80.0$
+on $n{=}40$ is in that band.
